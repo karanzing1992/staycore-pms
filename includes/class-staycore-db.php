@@ -155,9 +155,9 @@ final class StayCore_DB {
             'timezone'=>wp_timezone_string() ?: 'Asia/Kolkata',
             'check_in_time'=>'13:00',
             'check_out_time'=>'11:00',
-            'management_whatsapp'=>'918999541081',
-            'review_url'=>'https://search.google.com/local/writereview?placeid=ChIJJdv1eRXvvzsRD3ocRbGmM-g',
-            'instagram_url'=>'https://www.instagram.com/',
+            'management_whatsapp'=>'',
+            'review_url'=>'',
+            'instagram_url'=>'',
         ];
         update_option('staycore_pms_settings',array_merge($defaults,$current));
     }
