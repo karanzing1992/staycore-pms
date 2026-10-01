@@ -9,10 +9,12 @@ final class StayCore_REST {
 
     public static function privacy_headers($response,$server,$request) {
         $route=(string)$request->get_route();
-        if(str_starts_with($route,'/staycore/v1/self-checkin/') || str_starts_with($route,'/staycore/v1/feedback/') || str_contains($route,'/id-image')){
+        if(str_starts_with($route,'/staycore/v1/')){
             $response=rest_ensure_response($response);
             $response->header('Cache-Control','private, no-store, no-cache, must-revalidate, max-age=0');
             $response->header('Pragma','no-cache');
+        }
+        if(str_starts_with($route,'/staycore/v1/self-checkin/') || str_starts_with($route,'/staycore/v1/feedback/') || str_contains($route,'/id-image')){
             $response->header('X-Robots-Tag','noindex, nofollow, noarchive');
             $response->header('Referrer-Policy','no-referrer');
             $response->header('X-Content-Type-Options','nosniff');
@@ -295,8 +297,8 @@ final class StayCore_REST {
 
     public static function dashboard(): WP_REST_Response {
         global $wpdb; $t=StayCore_DB::tables(); $today=current_time('Y-m-d'); $start=$today.' 00:00:00'; $end=$today.' 23:59:59';
-        $arrivals=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_in)=%s AND status NOT IN ('cancelled','no_show')",$today));
-        $departures=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_out)=%s AND status NOT IN ('cancelled','no_show')",$today));
+        $arrivals=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_in)=%s AND status='confirmed'",$today));
+        $departures=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_out)=%s AND status='checked_in'",$today));
         $inhouse=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['reservations']} WHERE status='checked_in'");
         $occupied=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s",$end,$start));
         $available=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['units']} u WHERE u.status='available' AND u.housekeeping_status='clean' AND NOT EXISTS (SELECT 1 FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE ru.unit_id=u.id AND r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s)",$end,$start));
