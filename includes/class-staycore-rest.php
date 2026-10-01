@@ -2,7 +2,23 @@
 if (!defined('ABSPATH')) exit;
 
 final class StayCore_REST {
-    public static function boot(): void { add_action('rest_api_init',[__CLASS__,'routes']); }
+    public static function boot(): void {
+        add_action('rest_api_init',[__CLASS__,'routes']);
+        add_filter('rest_post_dispatch',[__CLASS__,'privacy_headers'],10,3);
+    }
+
+    public static function privacy_headers($response,$server,$request) {
+        $route=(string)$request->get_route();
+        if(str_starts_with($route,'/staycore/v1/self-checkin/') || str_starts_with($route,'/staycore/v1/feedback/')){
+            $response=rest_ensure_response($response);
+            $response->header('Cache-Control','private, no-store, no-cache, must-revalidate, max-age=0');
+            $response->header('Pragma','no-cache');
+            $response->header('X-Robots-Tag','noindex, nofollow, noarchive');
+            $response->header('Referrer-Policy','no-referrer');
+            $response->header('X-Content-Type-Options','nosniff');
+        }
+        return $response;
+    }
     public static function can_view(): bool { return current_user_can('staycore_view_pms') || current_user_can('manage_options'); }
     public static function can_reservations(): bool { return current_user_can('staycore_manage_reservations') || current_user_can('manage_options'); }
     public static function can_payments(): bool { return current_user_can('staycore_manage_payments') || current_user_can('manage_options'); }
@@ -536,6 +552,7 @@ final class StayCore_REST {
         global $wpdb; $t=StayCore_DB::tables(); $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??'');
         $row=self::reservation_row($id);
         if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+        if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
 
         $updates=['updated_at'=>current_time('mysql')];
@@ -608,6 +625,7 @@ final class StayCore_REST {
         $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??'');
         $row=self::reservation_row($id);
         if(!$row || !self::valid_feedback_token($row,$token)) return new WP_Error('invalid_link','This feedback link is invalid.',['status'=>403]);
+        if(self::public_link_expired($row,'feedback')) return new WP_Error('expired_link','This feedback link has expired.',['status'=>410]);
         if($row['status']!=='checked_out') return new WP_Error('not_checked_out','Feedback is available after checkout.',['status'=>409]);
         $sentiment=sanitize_key($p['sentiment']??'');
         if(!in_array($sentiment,['happy','not_happy'],true)) return new WP_Error('bad_sentiment','Choose Happy or Not happy.',['status'=>400]);
