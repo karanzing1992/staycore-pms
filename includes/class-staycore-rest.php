@@ -266,18 +266,19 @@ final class StayCore_REST {
         return $token!=='' && hash_equals(self::feedback_token($row),$token);
     }
 
-    private static function feedback_config(): array {
+    private static function feedback_config(bool $include_management=false): array {
         $s=get_option('staycore_pms_settings',[]);
         $property_name=sanitize_text_field($s['property_name']??get_bloginfo('name'));
         $review=esc_url_raw($s['review_url']??'');
         if(!$review) $review='https://www.google.com/maps/search/?api=1&query='.rawurlencode($property_name);
-        return [
+        $out=[
             'property_name'=>$property_name,
             'review_url'=>$review,
             'instagram_url'=>esc_url_raw($s['instagram_url']??''),
-            'management_whatsapp'=>preg_replace('/\\D+/', '', (string)($s['management_whatsapp']??'')),
             'site_url'=>home_url('/'),
         ];
+        if($include_management) $out['management_whatsapp']=preg_replace('/\\D+/', '', (string)($s['management_whatsapp']??''));
+        return $out;
     }
 
     private static function valid_international_phone(string $phone): bool {
@@ -617,7 +618,7 @@ final class StayCore_REST {
         return rest_ensure_response([
             'id'=>(int)$row['id'],'first_name'=>$row['first_name'],'reference'=>$row['external_ref']?:'#'.$row['id'],
             'sentiment'=>$meta['feedback_sentiment']??'','message'=>$meta['feedback_message']??'',
-            'config'=>self::feedback_config(),
+            'config'=>self::feedback_config(false),
         ]);
     }
 
@@ -638,7 +639,7 @@ final class StayCore_REST {
             if(!$open) $wpdb->insert($t['tasks'],['reservation_id'=>$id,'type'=>'service_recovery','title'=>'Guest reported an unhappy stay','status'=>'open','priority'=>'high','due_at'=>$now,'notes'=>$message,'created_at'=>$now,'updated_at'=>$now]);
         }
         StayCore_DB::log('guest_feedback','reservation',$id,$sentiment==='happy'?'Guest reported a happy stay.':'Guest requested service recovery.',['sentiment'=>$sentiment,'message'=>$message]);
-        return rest_ensure_response(['saved'=>true,'sentiment'=>$sentiment,'message'=>$message,'config'=>self::feedback_config(),'reference'=>$row['external_ref']?:'#'.$row['id']]);
+        return rest_ensure_response(['saved'=>true,'sentiment'=>$sentiment,'message'=>$message,'config'=>self::feedback_config($sentiment==='not_happy'),'reference'=>$row['external_ref']?:'#'.$row['id']]);
     }
 
     public static function activity(WP_REST_Request $request): WP_REST_Response {
