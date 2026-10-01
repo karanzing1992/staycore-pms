@@ -1,4 +1,3 @@
-/* staycore-webhook-test-20261002-0139 */
 (() => {
 const api=async(path,options={})=>{const res=await fetch(StayCorePMS.root+path,{...options,headers:{'Content-Type':'application/json','X-WP-Nonce':StayCorePMS.nonce,...(options.headers||{})}});const data=await res.json();if(!res.ok)throw new Error(data.message||'Request failed');return data};
 const el=s=>document.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
