@@ -2,17 +2,34 @@
 if (!defined('ABSPATH')) exit;
 
 final class StayCore_REST {
-    public static function boot(): void { add_action('rest_api_init',[__CLASS__,'routes']); }
+    public static function boot(): void {
+        add_action('rest_api_init',[__CLASS__,'routes']);
+        add_filter('rest_post_dispatch',[__CLASS__,'privacy_headers'],10,3);
+    }
+
+    public static function privacy_headers($response,$server,$request) {
+        $route=(string)$request->get_route();
+        if(str_starts_with($route,'/staycore/v1/self-checkin/') || str_starts_with($route,'/staycore/v1/feedback/') || str_contains($route,'/id-image')){
+            $response=rest_ensure_response($response);
+            $response->header('Cache-Control','private, no-store, no-cache, must-revalidate, max-age=0');
+            $response->header('Pragma','no-cache');
+            $response->header('X-Robots-Tag','noindex, nofollow, noarchive');
+            $response->header('Referrer-Policy','no-referrer');
+            $response->header('X-Content-Type-Options','nosniff');
+        }
+        return $response;
+    }
     public static function can_view(): bool { return current_user_can('staycore_view_pms') || current_user_can('manage_options'); }
     public static function can_reservations(): bool { return current_user_can('staycore_manage_reservations') || current_user_can('manage_options'); }
     public static function can_payments(): bool { return current_user_can('staycore_manage_payments') || current_user_can('manage_options'); }
     public static function can_housekeeping(): bool { return current_user_can('staycore_manage_housekeeping') || current_user_can('manage_options'); }
+    public static function can_manage(): bool { return current_user_can('manage_staycore_pms') || current_user_can('manage_options'); }
 
     public static function routes(): void {
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
         register_rest_route('staycore/v1','/units',[
             ['methods'=>'GET','callback'=>[__CLASS__,'units'],'permission_callback'=>[__CLASS__,'can_view']],
-            ['methods'=>'POST','callback'=>[__CLASS__,'create_unit'],'permission_callback'=>[__CLASS__,'can_reservations']],
+            ['methods'=>'POST','callback'=>[__CLASS__,'create_unit'],'permission_callback'=>[__CLASS__,'can_manage']],
         ]);
         register_rest_route('staycore/v1','/housekeeping',['methods'=>'POST','callback'=>[__CLASS__,'set_housekeeping'],'permission_callback'=>[__CLASS__,'can_housekeeping']]);
         register_rest_route('staycore/v1','/guest-lookup',['methods'=>'GET','callback'=>[__CLASS__,'guest_lookup'],'permission_callback'=>[__CLASS__,'can_reservations']]);
@@ -36,11 +53,11 @@ final class StayCore_REST {
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/status',['methods'=>'POST','callback'=>[__CLASS__,'set_status'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/move',['methods'=>'POST','callback'=>[__CLASS__,'move_unit'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/payments',[
-            ['methods'=>'GET','callback'=>[__CLASS__,'payments'],'permission_callback'=>[__CLASS__,'can_view']],
+            ['methods'=>'GET','callback'=>[__CLASS__,'payments'],'permission_callback'=>[__CLASS__,'can_payments']],
             ['methods'=>'POST','callback'=>[__CLASS__,'add_payment'],'permission_callback'=>[__CLASS__,'can_payments']],
         ]);
-        register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_view']]);
-        register_rest_route('staycore/v1','/integrations',['methods'=>'GET','callback'=>fn()=>rest_ensure_response(StayCore_Integrations::all()),'permission_callback'=>[__CLASS__,'can_view']]);
+        register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_reservations']]);
+        register_rest_route('staycore/v1','/integrations',['methods'=>'GET','callback'=>fn()=>rest_ensure_response(StayCore_Integrations::all()),'permission_callback'=>[__CLASS__,'can_manage']]);
     }
 
     private static function payment_summary(int $reservation_id): array {
@@ -74,6 +91,29 @@ final class StayCore_REST {
         $guest_meta=self::guest_meta((int)$row['guest_id']);
         $row['has_id_image']=!empty($guest_meta['id_image']['data']);
         return $row;
+    }
+
+    private static function redact_reservation_for_current_user(array $row): array {
+        $can_guest=self::can_reservations();
+        $can_money=self::can_payments();
+        if(!$can_guest){
+            $row['guest_name']='Occupied';
+            foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image'] as $key) unset($row[$key]);
+        }
+        if(!$can_money){
+            foreach(['total','currency','payment','payments'] as $key) unset($row[$key]);
+        }
+        return $row;
+    }
+
+    private static function public_link_expired(array $row,string $kind): bool {
+        $now=current_time('timestamp');
+        if($kind==='checkin'){
+            $expires=strtotime((string)$row['check_out'].' +1 day');
+            return $expires!==false && $now>$expires;
+        }
+        $expires=strtotime((string)$row['check_out'].' +30 days');
+        return $expires!==false && $now>$expires;
     }
 
     private static function active_overlap(int $unit_id,string $check_in,string $check_out,int $exclude=0): int {
@@ -226,18 +266,19 @@ final class StayCore_REST {
         return $token!=='' && hash_equals(self::feedback_token($row),$token);
     }
 
-    private static function feedback_config(): array {
+    private static function feedback_config(bool $include_management=false): array {
         $s=get_option('staycore_pms_settings',[]);
         $property_name=sanitize_text_field($s['property_name']??get_bloginfo('name'));
         $review=esc_url_raw($s['review_url']??'');
         if(!$review) $review='https://www.google.com/maps/search/?api=1&query='.rawurlencode($property_name);
-        return [
+        $out=[
             'property_name'=>$property_name,
             'review_url'=>$review,
             'instagram_url'=>esc_url_raw($s['instagram_url']??''),
-            'management_whatsapp'=>preg_replace('/\\D+/', '', (string)($s['management_whatsapp']??'')),
             'site_url'=>home_url('/'),
         ];
+        if($include_management) $out['management_whatsapp']=preg_replace('/\\D+/', '', (string)($s['management_whatsapp']??''));
+        return $out;
     }
 
     private static function valid_international_phone(string $phone): bool {
@@ -272,14 +313,22 @@ final class StayCore_REST {
         foreach($overdue as $x) $alerts[]=['type'=>'overdue','reservation_id'=>(int)$x['id'],'message'=>'Checkout overdue'];
         $unpaid=$wpdb->get_results($wpdb->prepare("SELECT id,total FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s AND total>0",$end,$start),ARRAY_A);
         foreach($unpaid as $x){ $ps=self::payment_summary((int)$x['id']); if($ps['balance']>0.009) $alerts[]=['type'=>'payment','reservation_id'=>(int)$x['id'],'message'=>'₹'.number_format($ps['balance'],2).' balance due']; }
-        $missing=$wpdb->get_results($wpdb->prepare("SELECT r.id FROM {$t['reservations']} r JOIN {$t['guests']} g ON g.id=r.guest_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s AND (g.phone IS NULL OR g.phone='')",$end,$start),ARRAY_A);
-        foreach($missing as $x) $alerts[]=['type'=>'contact','reservation_id'=>(int)$x['id'],'message'=>'Guest phone missing'];
-        return rest_ensure_response(['arrivals'=>$arrivals,'departures'=>$departures,'inhouse'=>$inhouse,'occupied_units'=>$occupied,'available_units'=>$available,'cleaning_units'=>$cleaning,'maintenance_units'=>$maintenance,'expected_revenue'=>$expected,'collected'=>$collected,'balance'=>max(0,$expected-$collected),'alerts'=>$alerts]);
+        if(self::can_reservations()){
+            $missing=$wpdb->get_results($wpdb->prepare("SELECT r.id FROM {$t['reservations']} r JOIN {$t['guests']} g ON g.id=r.guest_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s AND (g.phone IS NULL OR g.phone='')",$end,$start),ARRAY_A);
+            foreach($missing as $x) $alerts[]=['type'=>'contact','reservation_id'=>(int)$x['id'],'message'=>'Guest phone missing'];
+        } else {
+            $alerts=[];
+        }
+        $out=['arrivals'=>$arrivals,'departures'=>$departures,'inhouse'=>$inhouse,'occupied_units'=>$occupied,'available_units'=>$available,'cleaning_units'=>$cleaning,'maintenance_units'=>$maintenance,'alerts'=>$alerts];
+        if(self::can_payments()) $out+=['expected_revenue'=>$expected,'collected'=>$collected,'balance'=>max(0,$expected-$collected)];
+        return rest_ensure_response($out);
     }
 
     public static function units(): WP_REST_Response {
         global $wpdb; $t=StayCore_DB::tables();
-        return rest_ensure_response($wpdb->get_results("SELECT * FROM {$t['units']} ORDER BY room_group,name",ARRAY_A));
+        $rows=$wpdb->get_results("SELECT * FROM {$t['units']} ORDER BY room_group,name",ARRAY_A);
+        if(!self::can_payments()) foreach($rows as &$row) unset($row['base_rate']);
+        return rest_ensure_response($rows);
     }
 
     public static function create_unit(WP_REST_Request $request) {
@@ -317,19 +366,23 @@ final class StayCore_REST {
         global $wpdb; $t=StayCore_DB::tables();
         $from=sanitize_text_field($request->get_param('from')?:current_time('Y-m-d')); $to=sanitize_text_field($request->get_param('to')?:gmdate('Y-m-d',strtotime($from.' +30 days')));
         $rows=$wpdb->get_results($wpdb->prepare(
-            "SELECT r.*,CONCAT(g.first_name,' ',COALESCE(g.last_name,'')) guest_name,g.phone,g.email,g.nationality,g.id_type,g.id_number FROM {$t['reservations']} r LEFT JOIN {$t['guests']} g ON g.id=r.guest_id WHERE r.check_in < %s AND r.check_out >= %s ORDER BY r.check_in ASC",
+            "SELECT r.*,CONCAT(g.first_name,' ',COALESCE(g.last_name,'')) guest_name,g.first_name,g.last_name,g.phone,g.email,g.nationality,g.id_type,g.id_number FROM {$t['reservations']} r LEFT JOIN {$t['guests']} g ON g.id=r.guest_id WHERE r.check_in < %s AND r.check_out >= %s ORDER BY r.check_in ASC",
             $to.' 23:59:59',$from.' 00:00:00'
         ),ARRAY_A);
-        foreach($rows as &$row){ $row['assignments']=self::assignments((int)$row['id']); $row['payment']=self::payment_summary((int)$row['id']); }
+        foreach($rows as &$row){
+            $row['assignments']=self::assignments((int)$row['id']);
+            if(self::can_payments()) $row['payment']=self::payment_summary((int)$row['id']);
+            $row=self::redact_reservation_for_current_user($row);
+        }
         return rest_ensure_response($rows);
     }
 
     public static function reservation_detail(WP_REST_Request $request) {
         $row=self::reservation_row(absint($request['id'])); if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
         global $wpdb; $t=StayCore_DB::tables();
-        $row['payments']=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t['payments']} WHERE reservation_id=%d ORDER BY paid_at DESC,id DESC",(int)$row['id']),ARRAY_A);
-        $row['activity']=$wpdb->get_results($wpdb->prepare("SELECT a.*,u.display_name user_name FROM {$t['activity']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.user_id WHERE a.entity_type='reservation' AND a.entity_id=%d ORDER BY a.id DESC LIMIT 30",(int)$row['id']),ARRAY_A);
-        return rest_ensure_response($row);
+        if(self::can_payments()) $row['payments']=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t['payments']} WHERE reservation_id=%d ORDER BY paid_at DESC,id DESC",(int)$row['id']),ARRAY_A);
+        if(self::can_reservations()) $row['activity']=$wpdb->get_results($wpdb->prepare("SELECT a.id,a.user_id,a.action,a.entity_type,a.entity_id,a.message,a.created_at,u.display_name user_name FROM {$t['activity']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.user_id WHERE a.entity_type='reservation' AND a.entity_id=%d ORDER BY a.id DESC LIMIT 30",(int)$row['id']),ARRAY_A);
+        return rest_ensure_response(self::redact_reservation_for_current_user($row));
     }
 
     public static function create_reservation(WP_REST_Request $request) {
@@ -477,6 +530,7 @@ final class StayCore_REST {
         $id=absint($request['id']); $token=sanitize_text_field($request->get_param('token')?:'');
         $row=self::reservation_row($id);
         if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+        if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
         $meta=is_string($row['meta']??null)?json_decode($row['meta'],true):[];
         if(!is_array($meta)) $meta=[];
@@ -499,6 +553,7 @@ final class StayCore_REST {
         global $wpdb; $t=StayCore_DB::tables(); $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??'');
         $row=self::reservation_row($id);
         if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+        if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
 
         $updates=['updated_at'=>current_time('mysql')];
@@ -556,13 +611,14 @@ final class StayCore_REST {
         $id=absint($request['id']); $token=sanitize_text_field($request->get_param('token')?:'');
         $row=self::reservation_row($id);
         if(!$row || !self::valid_feedback_token($row,$token)) return new WP_Error('invalid_link','This feedback link is invalid.',['status'=>403]);
+        if(self::public_link_expired($row,'feedback')) return new WP_Error('expired_link','This feedback link has expired.',['status'=>410]);
         if($row['status']!=='checked_out') return new WP_Error('not_checked_out','This feedback link becomes available after checkout.',['status'=>409]);
         $meta=is_string($row['meta']??null)?json_decode($row['meta'],true):[];
         if(!is_array($meta)) $meta=[];
         return rest_ensure_response([
             'id'=>(int)$row['id'],'first_name'=>$row['first_name'],'reference'=>$row['external_ref']?:'#'.$row['id'],
             'sentiment'=>$meta['feedback_sentiment']??'','message'=>$meta['feedback_message']??'',
-            'config'=>self::feedback_config(),
+            'config'=>self::feedback_config(false),
         ]);
     }
 
@@ -570,6 +626,7 @@ final class StayCore_REST {
         $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??'');
         $row=self::reservation_row($id);
         if(!$row || !self::valid_feedback_token($row,$token)) return new WP_Error('invalid_link','This feedback link is invalid.',['status'=>403]);
+        if(self::public_link_expired($row,'feedback')) return new WP_Error('expired_link','This feedback link has expired.',['status'=>410]);
         if($row['status']!=='checked_out') return new WP_Error('not_checked_out','Feedback is available after checkout.',['status'=>409]);
         $sentiment=sanitize_key($p['sentiment']??'');
         if(!in_array($sentiment,['happy','not_happy'],true)) return new WP_Error('bad_sentiment','Choose Happy or Not happy.',['status'=>400]);
@@ -582,11 +639,13 @@ final class StayCore_REST {
             if(!$open) $wpdb->insert($t['tasks'],['reservation_id'=>$id,'type'=>'service_recovery','title'=>'Guest reported an unhappy stay','status'=>'open','priority'=>'high','due_at'=>$now,'notes'=>$message,'created_at'=>$now,'updated_at'=>$now]);
         }
         StayCore_DB::log('guest_feedback','reservation',$id,$sentiment==='happy'?'Guest reported a happy stay.':'Guest requested service recovery.',['sentiment'=>$sentiment,'message'=>$message]);
-        return rest_ensure_response(['saved'=>true,'sentiment'=>$sentiment,'message'=>$message,'config'=>self::feedback_config(),'reference'=>$row['external_ref']?:'#'.$row['id']]);
+        return rest_ensure_response(['saved'=>true,'sentiment'=>$sentiment,'message'=>$message,'config'=>self::feedback_config($sentiment==='not_happy'),'reference'=>$row['external_ref']?:'#'.$row['id']]);
     }
 
     public static function activity(WP_REST_Request $request): WP_REST_Response {
         global $wpdb; $t=StayCore_DB::tables(); $limit=min(100,max(10,absint($request->get_param('limit')?:50)));
-        return rest_ensure_response($wpdb->get_results($wpdb->prepare("SELECT a.*,u.display_name user_name FROM {$t['activity']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.user_id ORDER BY a.id DESC LIMIT %d",$limit),ARRAY_A));
+        $rows=$wpdb->get_results($wpdb->prepare("SELECT a.*,u.display_name user_name FROM {$t['activity']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.user_id ORDER BY a.id DESC LIMIT %d",$limit),ARRAY_A);
+        if(!self::can_manage()) foreach($rows as &$row) unset($row['meta']);
+        return rest_ensure_response($rows);
     }
 }

@@ -6,6 +6,7 @@ final class StayCore_Public {
         add_shortcode('staycore_self_checkin',[__CLASS__,'render']);
         add_shortcode('staycore_stay_feedback',[__CLASS__,'render_feedback']);
         add_filter('wp_robots',[__CLASS__,'robots']);
+        add_action('template_redirect',[__CLASS__,'privacy_page_headers']);
     }
 
     private static function ensure_named_page(string $slug,string $title,string $shortcode,string $option): int {
@@ -38,6 +39,16 @@ final class StayCore_Public {
         return $robots;
     }
 
+    public static function privacy_page_headers(): void {
+        $ids=array_filter([(int)get_option('staycore_self_checkin_page_id',0),(int)get_option('staycore_feedback_page_id',0)]);
+        if(!$ids || !is_page($ids)) return;
+        nocache_headers();
+        header('X-Robots-Tag: noindex, nofollow, noarchive',true);
+        header('Referrer-Policy: no-referrer',true);
+        header('X-Content-Type-Options: nosniff',true);
+        header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0',true);
+    }
+
     private static function shell_styles(): string {
         return '<style>
         .staycore-guest{--ink:#171713;--muted:#74756d;--line:#deddd6;--bg:#f5f4ef;--card:#fff;max-width:620px;margin:40px auto;padding:18px;color:var(--ink);font-family:inherit}
@@ -60,7 +71,10 @@ final class StayCore_Public {
         .scg-required{font-size:11px;color:#8b3f2f}.scg-wa{display:grid;gap:10px;margin-top:18px}.scg-bubble{max-width:88%;padding:12px 14px;border-radius:16px;font-size:15px;line-height:1.45}.scg-bubble.them{background:var(--bg);border-bottom-left-radius:5px}.scg-bubble.me{background:#dcf8c6;margin-left:auto;border-bottom-right-radius:5px}
         .scg-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}.scg-choice button{min-height:58px;border-radius:15px;border:1px solid var(--line);background:#fff;font-size:16px;font-weight:700;cursor:pointer}
         .scg-choice button:hover{background:var(--bg)}.scg-help{margin-top:16px;padding:12px;border-radius:14px;background:#fff3d9;font-size:13px;line-height:1.5}
-        @media(max-width:600px){.staycore-guest{margin:0 auto;padding:12px}.scg-card{border-radius:20px;padding:18px}.staycore-guest h1{font-size:28px}.scg-grid.two{grid-template-columns:1fr}}
+        .staycore-guest *{box-sizing:border-box}.scg-button,.scg-link,.scg-choice button,.scg-field input,.scg-field select,.scg-field textarea{touch-action:manipulation}.scg-button:focus-visible,.scg-link:focus-visible,.scg-choice button:focus-visible,.scg-field input:focus-visible,.scg-field select:focus-visible,.scg-field textarea:focus-visible{outline:3px solid rgba(23,23,19,.18);outline-offset:2px}
+        .scg-card{overflow:hidden}.scg-progress{height:4px;background:var(--bg);border-radius:99px;overflow:hidden;margin-bottom:16px}.scg-progress span{display:block;height:100%;width:66%;background:var(--ink);border-radius:99px}.scg-file{min-height:92px;align-content:center}.scg-file input{font-size:14px}.scg-actions .scg-button,.scg-actions .scg-link{width:100%}
+        @media(max-width:600px){.staycore-guest{margin:0 auto;padding:max(10px,env(safe-area-inset-top)) 10px calc(18px + env(safe-area-inset-bottom));max-width:none;min-height:100dvh;background:var(--bg)}.scg-card{border-radius:18px;padding:18px 16px;min-height:calc(100dvh - 20px - env(safe-area-inset-bottom));display:flex;flex-direction:column;justify-content:flex-start;box-shadow:none}.staycore-guest h1{font-size:30px}.staycore-guest h2{font-size:24px}.scg-grid.two{grid-template-columns:1fr}.scg-grid{gap:14px}.scg-field{font-size:13px}.scg-field input,.scg-field select,.scg-field textarea{min-height:52px;border-radius:14px}.scg-summary{padding:15px;margin-top:16px}.scg-actions{margin-top:20px}.scg-button,.scg-link{min-height:54px;font-size:16px;border-radius:15px}.scg-choice{gap:9px}.scg-choice button{min-height:68px}.scg-bubble{max-width:92%;font-size:15px}.scg-note{text-align:left}.scg-status{margin-top:10px;padding:18px}.scg-file{padding:14px}}
+        @media(prefers-reduced-motion:reduce){.staycore-guest *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
         </style>';
     }
 
@@ -75,6 +89,7 @@ final class StayCore_Public {
             <?php echo self::shell_styles(); ?>
             <div class="scg-card">
                 <p class="scg-eyebrow"><?php echo esc_html($property_name); ?></p>
+                <div class="scg-progress" aria-hidden="true"><span></span></div>
                 <div id="staycore-ci-body"><div class="scg-loading">Loading your booking…</div></div>
             </div>
             <script>
@@ -125,6 +140,7 @@ final class StayCore_Public {
             <?php echo self::shell_styles(); ?>
             <div class="scg-card">
                 <p class="scg-eyebrow"><?php echo esc_html($property_name); ?></p>
+                <div class="scg-progress" aria-hidden="true"><span style="width:100%"></span></div>
                 <div id="staycore-fb-body"><div class="scg-loading">Opening your checkout message…</div></div>
             </div>
             <script>
