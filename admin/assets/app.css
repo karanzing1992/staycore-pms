@@ -87,3 +87,16 @@
 .sc-detail-section.sc-payment-focus{border:2px solid #d2a642;border-radius:15px;padding:14px;margin-left:-2px;margin-right:-2px;background:#fffdf7;box-shadow:0 0 0 4px rgba(210,166,66,.08)}
 body.staycore-staff-portal .staycore-shell{margin:0!important}
 body.staycore-staff-portal #staycore-app{max-width:1080px}
+
+/* v0.5.4 attention details + exact unit filters */
+.sc-attention-summary{margin-top:9px;padding:10px 12px;border:1px solid #e8d9ae;background:#fff8df;border-radius:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sc-attention-open{border:0;background:transparent;padding:0;display:flex;align-items:baseline;gap:7px;cursor:pointer;color:var(--sc-ink);text-align:left}
+.sc-attention-open strong{font-size:20px;line-height:1}.sc-attention-open span{font-size:12px;font-weight:700}
+.sc-attention-breakdown{font-size:11px;color:#766536;text-align:right}
+.sc-attention-page{display:grid;gap:12px}.sc-attention-head{display:flex;justify-content:space-between;align-items:flex-start}.sc-attention-head h2{margin:5px 0 2px;font-size:28px;letter-spacing:-.04em}
+.sc-back-link{font-size:12px;color:var(--sc-muted);text-decoration:none}
+.sc-attention-chips{display:flex;gap:7px;overflow:auto;padding-bottom:2px}.sc-attention-chip{white-space:nowrap;background:#fff;border:1px solid var(--sc-line);border-radius:999px;padding:7px 10px;font-size:11px}.sc-attention-chip strong{font-size:12px}
+.sc-attention-card{padding:14px}.sc-attention-issues{display:grid;gap:7px;margin-top:11px}.sc-attention-issue{display:flex;align-items:center;justify-content:space-between;gap:10px;border-radius:11px;padding:9px 10px;background:var(--sc-soft);font-size:12px}
+.sc-attention-issue.payment{background:#fff1cc}.sc-attention-issue.overdue{background:#fde8e3}.sc-attention-issue.service_recovery{background:#f7e9f6}.sc-attention-issue.contact{background:#e8eef9}
+.sc-filtered-units{padding-top:0}
+@media(max-width:782px){.sc-attention-summary{align-items:flex-start;display:grid}.sc-attention-breakdown{text-align:left}.sc-attention-page{padding-top:4px}.sc-attention-card{padding:14px}.sc-attention-card .sc-actions{grid-template-columns:1fr}.sc-attention-chips{margin-right:-12px;padding-right:12px}}

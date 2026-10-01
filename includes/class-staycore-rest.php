@@ -301,6 +301,9 @@ final class StayCore_REST {
         $arrivals=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_in)=%s AND status='confirmed'",$today));
         $departures=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_out)=%s AND status='checked_in'",$today));
         $inhouse=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['reservations']} WHERE status='checked_in'");
+        $arrival_units=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE DATE(r.check_in)=%s AND r.status='confirmed'",$today));
+        $departure_units=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE DATE(r.check_out)=%s AND r.status='checked_in'",$today));
+        $inhouse_units=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE r.status='checked_in'");
         $occupied=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s",$end,$start));
         $available=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['units']} u WHERE u.status='available' AND u.housekeeping_status='clean' AND NOT EXISTS (SELECT 1 FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE ru.unit_id=u.id AND r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s)",$end,$start));
         $cleaning=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['units']} WHERE status='available' AND housekeeping_status IN ('dirty','cleaning')");
@@ -309,20 +312,59 @@ final class StayCore_REST {
         $ids=$wpdb->get_col($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s",$end,$start));
         $collected=0.0;
         if($ids){ $placeholders=implode(',',array_fill(0,count($ids),'%d')); $collected=(float)$wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='captured' AND reservation_id IN ($placeholders)",...array_map('intval',$ids))); }
-        $alerts=[];
-        $recovery=$wpdb->get_results("SELECT id,reservation_id,title FROM {$t['tasks']} WHERE type='service_recovery' AND status IN ('open','in_progress') ORDER BY id DESC LIMIT 20",ARRAY_A);
-        foreach($recovery as $x) $alerts[]=['type'=>'service_recovery','reservation_id'=>(int)$x['reservation_id'],'message'=>'Guest needs service recovery'];
-        $overdue=$wpdb->get_results($wpdb->prepare("SELECT id,guest_id,check_out FROM {$t['reservations']} WHERE status='checked_in' AND check_out<%s ORDER BY check_out",current_time('mysql')),ARRAY_A);
-        foreach($overdue as $x) $alerts[]=['type'=>'overdue','reservation_id'=>(int)$x['id'],'message'=>'Checkout overdue'];
-        $unpaid=$wpdb->get_results($wpdb->prepare("SELECT id,total FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s AND total>0",$end,$start),ARRAY_A);
-        foreach($unpaid as $x){ $ps=self::payment_summary((int)$x['id']); if($ps['balance']>0.009) $alerts[]=['type'=>'payment','reservation_id'=>(int)$x['id'],'message'=>'₹'.number_format($ps['balance'],2).' balance due']; }
+
+        $attention=[];
+        $add_attention=static function(int $reservation_id,string $type,string $message,array $extra=[]) use (&$attention): void {
+            if(!$reservation_id) return;
+            if(!isset($attention[$reservation_id])) $attention[$reservation_id]=['reservation_id'=>$reservation_id,'issues'=>[]];
+            $attention[$reservation_id]['issues'][]=array_merge(['type'=>$type,'message'=>$message],$extra);
+        };
+
+        $recovery=$wpdb->get_results("SELECT reservation_id FROM {$t['tasks']} WHERE type='service_recovery' AND status IN ('open','in_progress') ORDER BY id DESC LIMIT 50",ARRAY_A);
+        foreach($recovery as $x) $add_attention((int)$x['reservation_id'],'service_recovery','Guest needs service recovery');
+
+        $overdue=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status='checked_in' AND check_out<%s ORDER BY check_out",current_time('mysql')),ARRAY_A);
+        foreach($overdue as $x) $add_attention((int)$x['id'],'overdue','Checkout overdue');
+
+        $unpaid=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s AND total>0",$end,$start),ARRAY_A);
+        foreach($unpaid as $x){
+            $ps=self::payment_summary((int)$x['id']);
+            if(($ps['balance']??0)>0.009) $add_attention((int)$x['id'],'payment','Payment due',['balance'=>(float)$ps['balance']]);
+        }
+
         if(self::can_reservations()){
             $missing=$wpdb->get_results($wpdb->prepare("SELECT r.id FROM {$t['reservations']} r JOIN {$t['guests']} g ON g.id=r.guest_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s AND (g.phone IS NULL OR g.phone='')",$end,$start),ARRAY_A);
-            foreach($missing as $x) $alerts[]=['type'=>'contact','reservation_id'=>(int)$x['id'],'message'=>'Guest phone missing'];
+            foreach($missing as $x) $add_attention((int)$x['id'],'contact','Guest phone missing');
+
+            foreach($attention as $id=>&$item){
+                $row=self::reservation_row((int)$id);
+                if(!$row) continue;
+                $item['guest_name']=trim((string)($row['guest_name']??'Guest')) ?: 'Guest';
+                $item['assignment']=implode(', ',array_column($row['assignments']??[],'name'));
+                $item['status']=$row['status']??'';
+                $item['check_out']=$row['check_out']??'';
+            }
+            unset($item);
         } else {
-            $alerts=[];
+            $attention=[];
         }
-        $out=['arrivals'=>$arrivals,'departures'=>$departures,'inhouse'=>$inhouse,'occupied_units'=>$occupied,'available_units'=>$available,'cleaning_units'=>$cleaning,'maintenance_units'=>$maintenance,'alerts'=>$alerts];
+
+        $attention=array_values($attention);
+        usort($attention,static function(array $a,array $b): int {
+            $weight=['service_recovery'=>0,'overdue'=>1,'payment'=>2,'contact'=>3];
+            $aw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$a['issues']??[]));
+            $bw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$b['issues']??[]));
+            return $aw<=>$bw ?: ((int)$a['reservation_id']<=> (int)$b['reservation_id']);
+        });
+        $breakdown=['payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
+        foreach($attention as $item) foreach($item['issues'] as $issue) if(isset($breakdown[$issue['type']])) $breakdown[$issue['type']]++;
+
+        $out=[
+            'arrivals'=>$arrivals,'departures'=>$departures,'inhouse'=>$inhouse,
+            'arrival_units'=>$arrival_units,'departure_units'=>$departure_units,'inhouse_units'=>$inhouse_units,'occupied_units'=>$occupied,
+            'available_units'=>$available,'cleaning_units'=>$cleaning,'maintenance_units'=>$maintenance,
+            'alerts'=>$attention,'attention_count'=>count($attention),'attention_breakdown'=>$breakdown,
+        ];
         if(self::can_payments()) $out+=['expected_revenue'=>$expected,'collected'=>$collected,'balance'=>max(0,$expected-$collected)];
         return rest_ensure_response($out);
     }

@@ -39,7 +39,7 @@ final class StayCore_Staff {
     public static function route(): void {
         $path=self::request_path();
         if($path==='/staff-login/') self::render_login();
-        if($path==='/staff/') self::render_portal();
+        if($path==='/staff/' || $path==='/staff/attention/') self::render_portal($path==='/staff/attention/'?'attention':'rooms');
     }
 
     private static function security_headers(): void {
@@ -107,7 +107,7 @@ final class StayCore_Staff {
         exit;
     }
 
-    private static function render_portal(): void {
+    private static function render_portal(string $initial_view='rooms'): void {
         self::security_headers();
         if(!is_user_logged_in()){
             wp_safe_redirect(home_url('/staff-login/'));
@@ -120,6 +120,7 @@ final class StayCore_Staff {
         }
 
         $config=StayCore_Admin::client_config();
+        $config['initial_view']=$initial_view;
         $logout=wp_logout_url(home_url('/staff-login/'));
         $css=esc_url(STAYCORE_PMS_URL.'admin/assets/app.css?ver='.rawurlencode(STAYCORE_PMS_VERSION));
         $js=esc_url(STAYCORE_PMS_URL.'admin/assets/app.js?ver='.rawurlencode(STAYCORE_PMS_VERSION));
