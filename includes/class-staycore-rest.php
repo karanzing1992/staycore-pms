@@ -9,7 +9,7 @@ final class StayCore_REST {
 
     public static function privacy_headers($response,$server,$request) {
         $route=(string)$request->get_route();
-        if(str_starts_with($route,'/staycore/v1/self-checkin/') || str_starts_with($route,'/staycore/v1/feedback/')){
+        if(str_starts_with($route,'/staycore/v1/self-checkin/') || str_starts_with($route,'/staycore/v1/feedback/') || str_contains($route,'/id-image')){
             $response=rest_ensure_response($response);
             $response->header('Cache-Control','private, no-store, no-cache, must-revalidate, max-age=0');
             $response->header('Pragma','no-cache');
@@ -56,7 +56,7 @@ final class StayCore_REST {
             ['methods'=>'GET','callback'=>[__CLASS__,'payments'],'permission_callback'=>[__CLASS__,'can_payments']],
             ['methods'=>'POST','callback'=>[__CLASS__,'add_payment'],'permission_callback'=>[__CLASS__,'can_payments']],
         ]);
-        register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_view']]);
+        register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/integrations',['methods'=>'GET','callback'=>fn()=>rest_ensure_response(StayCore_Integrations::all()),'permission_callback'=>[__CLASS__,'can_manage']]);
     }
 
@@ -97,8 +97,8 @@ final class StayCore_REST {
         $can_guest=self::can_reservations();
         $can_money=self::can_payments();
         if(!$can_guest){
-            $row['guest_name']=trim((string)($row['first_name']??'Guest')) ?: 'Guest';
-            foreach(['phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image','last_name'] as $key) unset($row[$key]);
+            $row['guest_name']='Occupied';
+            foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image'] as $key) unset($row[$key]);
         }
         if(!$can_money){
             foreach(['total','currency','payment','payments'] as $key) unset($row[$key]);
