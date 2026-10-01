@@ -301,6 +301,9 @@ final class StayCore_REST {
         $arrivals=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_in)=%s AND status='confirmed'",$today));
         $departures=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_out)=%s AND status='checked_in'",$today));
         $inhouse=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['reservations']} WHERE status='checked_in'");
+        $arrival_units=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE DATE(r.check_in)=%s AND r.status='confirmed'",$today));
+        $departure_units=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE DATE(r.check_out)=%s AND r.status='checked_in'",$today));
+        $inhouse_units=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE r.status='checked_in'");
         $occupied=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s",$end,$start));
         $available=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['units']} u WHERE u.status='available' AND u.housekeeping_status='clean' AND NOT EXISTS (SELECT 1 FROM {$t['reservation_units']} ru JOIN {$t['reservations']} r ON r.id=ru.reservation_id WHERE ru.unit_id=u.id AND r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s)",$end,$start));
         $cleaning=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t['units']} WHERE status='available' AND housekeeping_status IN ('dirty','cleaning')");
@@ -357,7 +360,8 @@ final class StayCore_REST {
         foreach($attention as $item) foreach($item['issues'] as $issue) if(isset($breakdown[$issue['type']])) $breakdown[$issue['type']]++;
 
         $out=[
-            'arrivals'=>$arrivals,'departures'=>$departures,'inhouse'=>$inhouse,'occupied_units'=>$occupied,
+            'arrivals'=>$arrivals,'departures'=>$departures,'inhouse'=>$inhouse,
+            'arrival_units'=>$arrival_units,'departure_units'=>$departure_units,'inhouse_units'=>$inhouse_units,'occupied_units'=>$occupied,
             'available_units'=>$available,'cleaning_units'=>$cleaning,'maintenance_units'=>$maintenance,
             'alerts'=>$attention,'attention_count'=>count($attention),'attention_breakdown'=>$breakdown,
         ];
