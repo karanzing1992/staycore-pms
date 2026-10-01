@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main
-      - feature/checkin-feedback-v050
+      - 'feature/**'
+      - 'fix/**'
   pull_request:
     branches:
       - main
