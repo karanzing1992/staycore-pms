@@ -25,6 +25,7 @@ final class StayCore_DB {
     private static function upgrade(string $from): void {
         self::install_schema();
         self::ensure_roles();
+        self::ensure_settings();
         if (version_compare($from, '0.3.0', '<')) self::migrate_reservation_units();
         if (class_exists('StayCore_Public')) StayCore_Public::ensure_page();
         update_option('staycore_pms_db_version', STAYCORE_PMS_VERSION);
@@ -143,6 +144,22 @@ final class StayCore_DB {
             'property_name' => 'Andaz Vibe Stay - Arambol, Goa', 'currency' => 'INR',
             'timezone' => wp_timezone_string() ?: 'Asia/Kolkata', 'check_in_time' => '13:00', 'check_out_time' => '11:00',
         ]);
+    }
+
+    private static function ensure_settings(): void {
+        $current=get_option('staycore_pms_settings',[]);
+        if(!is_array($current)) $current=[];
+        $defaults=[
+            'property_name'=>'Andaz Vibe Stay - Arambol, Goa',
+            'currency'=>'INR',
+            'timezone'=>wp_timezone_string() ?: 'Asia/Kolkata',
+            'check_in_time'=>'13:00',
+            'check_out_time'=>'11:00',
+            'management_whatsapp'=>'918999541081',
+            'review_url'=>'https://search.google.com/local/writereview?placeid=ChIJJdv1eRXvvzsRD3ocRbGmM-g',
+            'instagram_url'=>'https://www.instagram.com/',
+        ];
+        update_option('staycore_pms_settings',array_merge($defaults,$current));
     }
 
     private static function ensure_roles(): void {
