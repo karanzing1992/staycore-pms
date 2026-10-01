@@ -32,7 +32,8 @@ final class StayCore_Admin {
     public static function render(): void {
         if(!current_user_can('staycore_view_pms')&&!current_user_can('manage_options')) wp_die('Not allowed.');
         $can_reservations=current_user_can('staycore_manage_reservations')||current_user_can('manage_options');
-        $title=$can_reservations?'Front Desk':'Housekeeping';
+        $can_manage=current_user_can('manage_staycore_pms')||current_user_can('manage_options');
+        $title=$can_manage?'Manager':($can_reservations?'Front Desk':'Housekeeping');
         echo '<div class="wrap staycore-shell"><div id="staycore-app">';
         echo '<header class="staycore-head"><div><p class="eyebrow">ANDAZ VIBE STAY</p><h1>'.esc_html($title).'</h1><p class="sc-today-label">'.esc_html(wp_date('D, j M')).'</p></div>'.($can_reservations?'<button class="button button-primary sc-new" id="sc-new-booking">+ Booking</button>':'').'</header>';
         echo '<section class="staycore-kpis" id="sc-kpis"></section><section id="sc-alerts"></section>';
