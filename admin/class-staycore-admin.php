@@ -9,12 +9,9 @@ final class StayCore_Admin {
     public static function menu(): void {
         add_menu_page('StayCore PMS','StayCore PMS','staycore_view_pms','staycore-pms',[__CLASS__,'render'],'dashicons-building',3);
     }
-    public static function assets(string $hook): void {
-        if($hook!=='toplevel_page_staycore-pms') return;
-        wp_enqueue_style('staycore-pms',STAYCORE_PMS_URL.'admin/assets/app.css',[],STAYCORE_PMS_VERSION);
-        wp_enqueue_script('staycore-pms',STAYCORE_PMS_URL.'admin/assets/app.js',[],STAYCORE_PMS_VERSION,true);
+    public static function client_config(): array {
         $all_settings=get_option('staycore_pms_settings',[]);
-        wp_localize_script('staycore-pms','StayCorePMS',[
+        return [
             'root'=>esc_url_raw(rest_url('staycore/v1/')),'nonce'=>wp_create_nonce('wp_rest'),'today'=>current_time('Y-m-d'),
             'settings'=>[
                 'check_in_time'=>sanitize_text_field($all_settings['check_in_time']??'13:00'),
@@ -27,7 +24,13 @@ final class StayCore_Admin {
                 'manager'=>current_user_can('manage_staycore_pms')||current_user_can('manage_options'),
                 'reports'=>current_user_can('staycore_view_reports')||current_user_can('manage_options'),
             ],
-        ]);
+        ];
+    }
+    public static function assets(string $hook): void {
+        if($hook!=='toplevel_page_staycore-pms') return;
+        wp_enqueue_style('staycore-pms',STAYCORE_PMS_URL.'admin/assets/app.css',[],STAYCORE_PMS_VERSION);
+        wp_enqueue_script('staycore-pms',STAYCORE_PMS_URL.'admin/assets/app.js',[],STAYCORE_PMS_VERSION,true);
+        wp_localize_script('staycore-pms','StayCorePMS',self::client_config());
     }
     public static function render(): void {
         if(!current_user_can('staycore_view_pms')&&!current_user_can('manage_options')) wp_die('Not allowed.');
