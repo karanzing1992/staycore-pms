@@ -275,9 +275,10 @@ final class StayCore_REST {
         $adults=max(1,absint($p['adults']??1)); $children=absint($p['children']??0); $people=$adults+$children;
         $stay_type=sanitize_key($p['stay_type']??'dorm_any'); $unit_ids=self::normalize_unit_ids($p);
         $auto_assign=array_key_exists('auto_assign',$p)?(bool)$p['auto_assign']:!$unit_ids;
+        $was_auto_assign=!$unit_ids && $auto_assign;
         if(!$first || !$check_in || !$check_out) return new WP_Error('missing_fields','Guest name, check-in and check-out are required.',['status'=>400]);
         if(strtotime($check_out)<=strtotime($check_in)) return new WP_Error('bad_dates','Check-out must be after check-in.',['status'=>400]);
-        if(!$unit_ids && $auto_assign){
+        if($was_auto_assign){
             $assigned=self::auto_assign_units($check_in,$check_out,$people,$stay_type);
             if(is_wp_error($assigned)) return $assigned;
             $unit_ids=$assigned;
@@ -310,7 +311,7 @@ final class StayCore_REST {
             $guest_id=(int)$wpdb->insert_id;
         }
 
-        $meta=['stay_type'=>$stay_type,'auto_assigned'=>$auto_assign && !isset($p['unit_ids'])];
+        $meta=['stay_type'=>$stay_type,'auto_assigned'=>$was_auto_assign];
         if(isset($p['meta'])&&is_array($p['meta'])) $meta=array_merge($p['meta'],$meta);
         $data=['guest_id'=>$guest_id,'unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??'direct'),'external_ref'=>sanitize_text_field($p['external_ref']??''),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>sanitize_key($p['status']??'confirmed'),'total'=>(float)($p['total']??0),'currency'=>strtoupper(sanitize_text_field($p['currency']??'INR')),'notes'=>sanitize_textarea_field($p['notes']??''),'meta'=>wp_json_encode($meta),'created_at'=>$now,'updated_at'=>$now];
         $wpdb->insert($t['reservations'],$data); if(!$wpdb->insert_id) return new WP_Error('db_error','Could not create reservation.',['status'=>500]); $id=(int)$wpdb->insert_id;
