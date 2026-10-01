@@ -228,10 +228,13 @@ final class StayCore_REST {
 
     private static function feedback_config(): array {
         $s=get_option('staycore_pms_settings',[]);
+        $property_name=sanitize_text_field($s['property_name']??get_bloginfo('name'));
+        $review=esc_url_raw($s['review_url']??'');
+        if(!$review) $review='https://www.google.com/maps/search/?api=1&query='.rawurlencode($property_name);
         return [
-            'property_name'=>sanitize_text_field($s['property_name']??get_bloginfo('name')),
-            'review_url'=>esc_url_raw($s['review_url']??''),
-            'instagram_url'=>esc_url_raw($s['instagram_url']??'https://www.instagram.com/'),
+            'property_name'=>$property_name,
+            'review_url'=>$review,
+            'instagram_url'=>esc_url_raw($s['instagram_url']??''),
             'management_whatsapp'=>preg_replace('/\\D+/', '', (string)($s['management_whatsapp']??'')),
             'site_url'=>home_url('/'),
         ];
