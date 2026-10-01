@@ -80,3 +80,10 @@
 @media(prefers-reduced-motion:reduce){
   .staycore-shell *{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 }
+
+/* v0.5.3 employee portal + checkout payment guard */
+.sc-payment-due{margin:0 0 12px;padding:12px 13px;border:1px solid #e2bf72;border-radius:13px;background:#fff6d8;font-size:13px;line-height:1.45}
+.sc-payment-due strong{display:block;margin-bottom:3px}
+.sc-detail-section.sc-payment-focus{border:2px solid #d2a642;border-radius:15px;padding:14px;margin-left:-2px;margin-right:-2px;background:#fffdf7;box-shadow:0 0 0 4px rgba(210,166,66,.08)}
+body.staycore-staff-portal .staycore-shell{margin:0!important}
+body.staycore-staff-portal #staycore-app{max-width:1080px}

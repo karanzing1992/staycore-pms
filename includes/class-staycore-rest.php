@@ -68,7 +68,8 @@ final class StayCore_REST {
         $total=(float)$wpdb->get_var($wpdb->prepare("SELECT total FROM {$t['reservations']} WHERE id=%d",$reservation_id));
         $balance=max(0,$total-$captured);
         $status=$total<=0?'not_set':($captured<=0?'pending':($balance>0.009?'partial':'paid'));
-        return compact('total','captured','balance','status');
+        $summary=compact('total','captured','balance','status');
+        return apply_filters('staycore_pms_payment_summary',$summary,$reservation_id);
     }
 
     private static function assignments(int $reservation_id): array {
@@ -477,6 +478,16 @@ final class StayCore_REST {
         $assign=self::assignments($id);
         if($status==='checked_in'){
             foreach($assign as $a) if(($a['status']??'available')!=='available' || ($a['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',$a['name'].' is not ready. Housekeeping must mark it clean before check-in.',['status'=>409]);
+        }
+        if($status==='checked_out'){
+            $payment=self::payment_summary($id);
+            $balance=max(0,(float)($payment['balance']??0));
+            $clear=(bool)apply_filters('staycore_pms_checkout_payment_clear',$balance<=0.009,$id,$payment);
+            if(!$clear){
+                StayCore_DB::log('checkout_blocked_payment','reservation',$id,'Checkout blocked because payment is pending.',['balance'=>$balance,'payment'=>$payment]);
+                StayCore_Integrations::emit('checkout_payment_required',['reservation_id'=>$id,'balance'=>$balance,'payment'=>$payment]);
+                return new WP_Error('payment_due','Collect the pending payment before checkout.',['status'=>409,'balance'=>$balance,'payment'=>$payment]);
+            }
         }
         $wpdb->update($t['reservations'],['status'=>$status,'updated_at'=>$now],['id'=>$id]); if(!$wpdb->rows_affected) return new WP_Error('not_found','Reservation was not updated.',['status'=>404]);
         if($status==='checked_out'){
