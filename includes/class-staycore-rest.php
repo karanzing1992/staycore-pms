@@ -16,9 +16,14 @@ final class StayCore_REST {
         ]);
         register_rest_route('staycore/v1','/housekeeping',['methods'=>'POST','callback'=>[__CLASS__,'set_housekeeping'],'permission_callback'=>[__CLASS__,'can_housekeeping']]);
         register_rest_route('staycore/v1','/guest-lookup',['methods'=>'GET','callback'=>[__CLASS__,'guest_lookup'],'permission_callback'=>[__CLASS__,'can_reservations']]);
+        register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/id-image',['methods'=>'GET','callback'=>[__CLASS__,'guest_id_image'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/self-checkin/(?P<id>\\d+)',[
             ['methods'=>'GET','callback'=>[__CLASS__,'self_checkin_get'],'permission_callback'=>'__return_true'],
             ['methods'=>'POST','callback'=>[__CLASS__,'self_checkin_post'],'permission_callback'=>'__return_true'],
+        ]);
+        register_rest_route('staycore/v1','/feedback/(?P<id>\\d+)',[
+            ['methods'=>'GET','callback'=>[__CLASS__,'feedback_get'],'permission_callback'=>'__return_true'],
+            ['methods'=>'POST','callback'=>[__CLASS__,'feedback_post'],'permission_callback'=>'__return_true'],
         ]);
         register_rest_route('staycore/v1','/reservations',[
             ['methods'=>'GET','callback'=>[__CLASS__,'reservations'],'permission_callback'=>[__CLASS__,'can_view']],
@@ -65,6 +70,9 @@ final class StayCore_REST {
         $row['assignments']=self::assignments($id);
         $row['payment']=self::payment_summary($id);
         $row['self_checkin_url']=self::self_checkin_url($row);
+        $row['feedback_url']=self::feedback_url($row);
+        $guest_meta=self::guest_meta((int)$row['guest_id']);
+        $row['has_id_image']=!empty($guest_meta['id_image']['data']);
         return $row;
     }
 
@@ -188,6 +196,57 @@ final class StayCore_REST {
         if(!is_array($meta)) $meta=[];
         foreach($changes as $k=>$v) $meta[$k]=$v;
         $wpdb->update($t['reservations'],['meta'=>wp_json_encode($meta),'updated_at'=>current_time('mysql')],['id'=>$id]);
+    }
+
+    private static function guest_meta(int $guest_id): array {
+        global $wpdb; $t=StayCore_DB::tables();
+        $raw=$wpdb->get_var($wpdb->prepare("SELECT meta FROM {$t['guests']} WHERE id=%d",$guest_id));
+        $meta=is_string($raw)&&$raw!==''?json_decode($raw,true):[];
+        return is_array($meta)?$meta:[];
+    }
+
+    private static function merge_guest_meta(int $guest_id,array $changes): void {
+        global $wpdb; $t=StayCore_DB::tables();
+        $meta=self::guest_meta($guest_id);
+        foreach($changes as $k=>$v) $meta[$k]=$v;
+        $wpdb->update($t['guests'],['meta'=>wp_json_encode($meta),'updated_at'=>current_time('mysql')],['id'=>$guest_id]);
+    }
+
+    private static function feedback_token(array $row): string {
+        return hash_hmac('sha256','staycore-feedback|'.(int)$row['id'].'|'.(int)$row['guest_id'].'|'.(string)$row['created_at'],wp_salt('auth'));
+    }
+
+    private static function feedback_url(array $row): string {
+        $page=(int)get_option('staycore_feedback_page_id',0);
+        $base=$page?get_permalink($page):home_url('/stay-feedback/');
+        return add_query_arg(['booking'=>(int)$row['id'],'token'=>self::feedback_token($row)],$base);
+    }
+
+    private static function valid_feedback_token(array $row,string $token): bool {
+        return $token!=='' && hash_equals(self::feedback_token($row),$token);
+    }
+
+    private static function feedback_config(): array {
+        $s=get_option('staycore_pms_settings',[]);
+        return [
+            'property_name'=>sanitize_text_field($s['property_name']??get_bloginfo('name')),
+            'review_url'=>esc_url_raw($s['review_url']??''),
+            'instagram_url'=>esc_url_raw($s['instagram_url']??'https://www.instagram.com/'),
+            'management_whatsapp'=>preg_replace('/\\D+/', '', (string)($s['management_whatsapp']??'')),
+            'site_url'=>home_url('/'),
+        ];
+    }
+
+    private static function valid_international_phone(string $phone): bool {
+        return (bool)preg_match('/^\\+[1-9]\\d{7,14}$/',trim($phone));
+    }
+
+    private static function parse_id_image(string $data_url) {
+        if(!preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#',$data_url,$m)) return new WP_Error('bad_id_image','Please upload a JPG, PNG or WebP image of your ID.',['status'=>400]);
+        $bytes=base64_decode($m[2],true);
+        if($bytes===false || strlen($bytes)<500) return new WP_Error('bad_id_image','The ID image could not be read. Please take another photo.',['status'=>400]);
+        if(strlen($bytes)>2097152) return new WP_Error('id_image_too_large','The ID image is too large. Please retake it at a lower resolution.',['status'=>413]);
+        return ['mime'=>$m[1],'data'=>base64_encode($bytes),'updated_at'=>current_time('mysql')];
     }
 
     public static function dashboard(): WP_REST_Response {
@@ -398,8 +457,15 @@ final class StayCore_REST {
         $last=$wpdb->get_row($wpdb->prepare("SELECT check_in,check_out,source FROM {$t['reservations']} WHERE guest_id=%d ORDER BY check_out DESC LIMIT 1",(int)$guest['id']),ARRAY_A);
         return rest_ensure_response(['found'=>true,'guest'=>[
             'id'=>(int)$guest['id'],'first_name'=>$guest['first_name'],'last_name'=>$guest['last_name'],'phone'=>$guest['phone'],'email'=>$guest['email'],
-            'nationality'=>$guest['nationality'],'id_type'=>$guest['id_type'],'id_number'=>$guest['id_number'],'notes'=>$guest['notes'],'stay_count'=>$stays,'last_stay'=>$last,
+            'nationality'=>$guest['nationality'],'id_type'=>$guest['id_type'],'id_number'=>$guest['id_number'],'has_id_image'=>!empty(self::guest_meta((int)$guest['id'])['id_image']['data']),'notes'=>$guest['notes'],'stay_count'=>$stays,'last_stay'=>$last,
         ]]);
+    }
+
+    public static function guest_id_image(WP_REST_Request $request) {
+        $guest_id=absint($request['id']);
+        $image=self::guest_meta($guest_id)['id_image']??null;
+        if(!is_array($image)||empty($image['data'])||empty($image['mime'])) return new WP_Error('not_found','No ID image is stored for this guest.',['status'=>404]);
+        return rest_ensure_response(['mime'=>$image['mime'],'data'=>$image['data'],'updated_at'=>$image['updated_at']??null]);
     }
 
     public static function self_checkin_get(WP_REST_Request $request) {
@@ -409,11 +475,13 @@ final class StayCore_REST {
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
         $meta=is_string($row['meta']??null)?json_decode($row['meta'],true):[];
         if(!is_array($meta)) $meta=[];
+        $guest_meta=self::guest_meta((int)$row['guest_id']);
         $missing=[];
-        if(empty($row['phone'])) $missing[]='phone';
+        if(!self::valid_international_phone((string)$row['phone'])) $missing[]='phone';
         if(empty($row['email'])) $missing[]='email';
         if(empty($row['nationality'])) $missing[]='nationality';
         if(empty($row['id_type']) || empty($row['id_number'])) $missing[]='id';
+        if(empty($guest_meta['id_image']['data'])) $missing[]='id_image';
         return rest_ensure_response([
             'id'=>(int)$row['id'],'first_name'=>$row['first_name'],'reference'=>$row['external_ref']?:'#'.$row['id'],
             'check_in'=>$row['check_in'],'check_out'=>$row['check_out'],'assignment'=>implode(', ',array_column($row['assignments'],'name')),
@@ -429,13 +497,34 @@ final class StayCore_REST {
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
 
         $updates=['updated_at'=>current_time('mysql')];
-        if(!empty($p['phone'])) $updates['phone']=sanitize_text_field($p['phone']);
+        if(array_key_exists('phone',$p)){
+            $cc=preg_replace('/\\D+/', '', (string)($p['country_code']??''));
+            $local=preg_replace('/\\D+/', '', (string)$p['phone']);
+            if(!$cc || strlen($local)<6) return new WP_Error('phone_required','Choose a country code and enter your mobile number.',['status'=>400]);
+            $updates['phone']='+'.$cc.$local;
+        }
         if(!empty($p['email'])) $updates['email']=sanitize_email($p['email']);
         if(!empty($p['nationality'])) $updates['nationality']=sanitize_text_field($p['nationality']);
         if(!empty($p['id_type'])) $updates['id_type']=sanitize_text_field($p['id_type']);
         if(!empty($p['id_number'])) $updates['id_number']=sanitize_text_field($p['id_number']);
-        $phone=$updates['phone']??$row['phone'];
-        if(!$phone) return new WP_Error('phone_required','Please enter a mobile number to complete self check-in.',['status'=>400]);
+
+        $phone=$updates['phone']??(string)$row['phone'];
+        $nationality=$updates['nationality']??(string)$row['nationality'];
+        $id_type=$updates['id_type']??(string)$row['id_type'];
+        $id_number=$updates['id_number']??(string)$row['id_number'];
+        if(!self::valid_international_phone($phone)) return new WP_Error('phone_required','A mobile number with country code is required.',['status'=>400]);
+        if(!$nationality) return new WP_Error('nationality_required','Please select or enter your nationality.',['status'=>400]);
+        if(!$id_type || !$id_number) return new WP_Error('id_required','ID type and ID number are required.',['status'=>400]);
+
+        $guest_meta=self::guest_meta((int)$row['guest_id']);
+        if(!empty($p['id_image_data'])){
+            $image=self::parse_id_image((string)$p['id_image_data']);
+            if(is_wp_error($image)) return $image;
+            self::merge_guest_meta((int)$row['guest_id'],['id_image'=>$image]);
+            $guest_meta['id_image']=$image;
+        }
+        if(empty($guest_meta['id_image']['data'])) return new WP_Error('id_image_required','Please take or upload a clear photo of your ID.',['status'=>400]);
+
         $wpdb->update($t['guests'],$updates,['id'=>(int)$row['guest_id']]);
         self::merge_reservation_meta($id,['precheckin_at'=>current_time('mysql')]);
         StayCore_DB::log('guest_prechecked','reservation',$id,'Guest completed self check-in details.');
@@ -456,6 +545,34 @@ final class StayCore_REST {
             StayCore_Integrations::emit('reservation_status_changed',['id'=>$id,'status'=>'checked_in','via'=>'self_checkin']);
         }
         return rest_ensure_response(['state'=>'checked_in']);
+    }
+
+    public static function feedback_get(WP_REST_Request $request) {
+        $id=absint($request['id']); $token=sanitize_text_field($request->get_param('token')?:'');
+        $row=self::reservation_row($id);
+        if(!$row || !self::valid_feedback_token($row,$token)) return new WP_Error('invalid_link','This feedback link is invalid.',['status'=>403]);
+        if($row['status']!=='checked_out') return new WP_Error('not_checked_out','This feedback link becomes available after checkout.',['status'=>409]);
+        $meta=is_string($row['meta']??null)?json_decode($row['meta'],true):[];
+        if(!is_array($meta)) $meta=[];
+        return rest_ensure_response([
+            'id'=>(int)$row['id'],'first_name'=>$row['first_name'],'reference'=>$row['external_ref']?:'#'.$row['id'],
+            'sentiment'=>$meta['feedback_sentiment']??'','message'=>$meta['feedback_message']??'',
+            'config'=>self::feedback_config(),
+        ]);
+    }
+
+    public static function feedback_post(WP_REST_Request $request) {
+        $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??'');
+        $row=self::reservation_row($id);
+        if(!$row || !self::valid_feedback_token($row,$token)) return new WP_Error('invalid_link','This feedback link is invalid.',['status'=>403]);
+        if($row['status']!=='checked_out') return new WP_Error('not_checked_out','Feedback is available after checkout.',['status'=>409]);
+        $sentiment=sanitize_key($p['sentiment']??'');
+        if(!in_array($sentiment,['happy','not_happy'],true)) return new WP_Error('bad_sentiment','Choose Happy or Not happy.',['status'=>400]);
+        $message=sanitize_textarea_field($p['message']??'');
+        if($sentiment==='not_happy' && strlen(trim($message))<3) return new WP_Error('message_required','Tell us what went wrong so management can fix it.',['status'=>400]);
+        self::merge_reservation_meta($id,['feedback_sentiment'=>$sentiment,'feedback_message'=>$message,'feedback_at'=>current_time('mysql')]);
+        StayCore_DB::log('guest_feedback','reservation',$id,$sentiment==='happy'?'Guest reported a happy stay.':'Guest requested service recovery.',['sentiment'=>$sentiment,'message'=>$message]);
+        return rest_ensure_response(['saved'=>true,'sentiment'=>$sentiment,'message'=>$message,'config'=>self::feedback_config(),'reference'=>$row['external_ref']?:'#'.$row['id']]);
     }
 
     public static function activity(WP_REST_Request $request): WP_REST_Response {
