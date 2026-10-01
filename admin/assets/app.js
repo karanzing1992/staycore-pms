@@ -46,7 +46,7 @@ const items=StayCorePMS.caps.reservations?[
 ]:[
   ['cleaning','To clean',d.cleaning_units||0],
   ['available','Ready',d.available_units],
-  ['inhouse','Occupied',d.inhouse_units??d.occupied_units||0],
+  ['inhouse','Occupied',(d.inhouse_units??d.occupied_units??0)],
   ['maintenance','Maintenance',d.maintenance_units||0]
 ];
 el('#sc-kpis').innerHTML=items.map(([k,l,v])=>'<button class="sc-kpi" data-kpi="'+k+'"><strong>'+v+'</strong><span>'+l+'</span></button>').join('');
@@ -66,30 +66,35 @@ const checkoutAction=r=>{if(r.status!=='checked_in'||!StayCorePMS.caps.reservati
 const compactGuest=r=>StayCorePMS.caps.reservations?'<div class="sc-guest-line"><div class="sc-row"><button class="sc-link sc-open" data-id="'+r.id+'">'+esc((r.guest_name||'Guest').trim())+'</button>'+statusBadge(r)+'</div><div class="sc-meta">'+pretty(r.check_out)+' checkout · '+esc(r.source||'direct')+'</div><div class="sc-row" style="margin-top:7px">'+(StayCorePMS.caps.payments?payBadge(r):'')+'<button class="button sc-open" data-id="'+r.id+'">Open</button></div></div>':'<div class="sc-guest-line"><div class="sc-row"><strong>'+esc((r.guest_name||'Guest').trim())+'</strong>'+statusBadge(r)+'</div><div class="sc-meta">Occupied until '+pretty(r.check_out)+'</div></div>';
 
 const setHousekeeping=async(unitIds,status)=>{await api('housekeeping',{method:'POST',body:JSON.stringify({unit_ids:unitIds,status})});await loadDashboard();await renderRooms()};
-const unitMatchesRoomFilter=(u,r,filter,date)=>{
+const reservationsForUnit=(rows,uid)=>rows.filter(r=>(r.assignments||[]).some(a=>Number(a.unit_id)===Number(uid)));
+const filterReservationForUnit=(rows,u,filter,date)=>{const rs=reservationsForUnit(rows,u.id);
+if(filter==='arrivals')return rs.find(r=>day(r.check_in)===date&&r.status==='confirmed')||null;
+if(filter==='departures')return rs.find(r=>day(r.check_out)===date&&r.status==='checked_in')||null;
+if(filter==='inhouse')return rs.find(r=>r.status==='checked_in')||null;
+return resForUnit(rows,u.id,date)||null};
+const unitMatchesRoomFilter=(u,rows,filter,date)=>{
+const filterRes=filterReservationForUnit(rows,u,filter,date),reserved=reservationsForUnit(rows,u.id).some(r=>['confirmed','checked_in'].includes(r.status));
 if(filter==='all')return true;
-if(filter==='arrivals')return !!r&&day(r.check_in)===date&&r.status==='confirmed';
-if(filter==='departures')return !!r&&day(r.check_out)===date&&r.status==='checked_in';
-if(filter==='inhouse')return !!r&&r.status==='checked_in';
-if(filter==='available')return !r&&u.status==='available'&&(u.housekeeping_status||'clean')==='clean';
-if(filter==='cleaning')return !r&&u.status==='available'&&['dirty','cleaning'].includes(u.housekeeping_status||'clean');
+if(['arrivals','departures','inhouse'].includes(filter))return !!filterRes;
+if(filter==='available')return !reserved&&u.status==='available'&&(u.housekeeping_status||'clean')==='clean';
+if(filter==='cleaning')return !reserved&&u.status==='available'&&['dirty','cleaning'].includes(u.housekeeping_status||'clean');
 if(filter==='maintenance')return (u.housekeeping_status||'clean')==='maintenance';
 return true;
 };
-const renderRooms=async()=>{state.units=await api('units');const rows=await api('reservations?from='+state.date+'&to='+state.date),rooms=groupRooms(state.units),cards=[];
+const renderRooms=async()=>{state.units=await api('units');const rows=await api('reservations?from='+state.date+'&to='+state.date),rooms=groupRooms(state.units),cards=[];let visibleUnitCount=0;
 for(const g of rooms){
   const fullReservations=[];g.units.forEach(u=>{const rr=resForUnit(rows,u.id,state.date);if(rr&&!fullReservations.some(x=>x.id===rr.id))fullReservations.push(rr)});
-  const matched=g.units.filter(u=>unitMatchesRoomFilter(u,resForUnit(rows,u.id,state.date),state.roomFilter,state.date));
+  const matched=g.units.filter(u=>unitMatchesRoomFilter(u,rows,state.roomFilter,state.date));
   if(!matched.length)continue;
-  const filtered=state.roomFilter!=='all',visibleUnits=filtered?matched:g.units;
-  const visibleReservations=[];visibleUnits.forEach(u=>{const rr=resForUnit(rows,u.id,state.date);if(rr&&!visibleReservations.some(x=>x.id===rr.id))visibleReservations.push(rr)});
+  const filtered=state.roomFilter!=='all',visibleUnits=filtered?matched:g.units;visibleUnitCount+=visibleUnits.length;
+  const visibleReservations=[];visibleUnits.forEach(u=>{const rr=state.roomFilter==='all'?resForUnit(rows,u.id,state.date):filterReservationForUnit(rows,u,state.roomFilter,state.date);if(rr&&!visibleReservations.some(x=>x.id===rr.id))visibleReservations.push(rr)});
   const hay=(g.key+' '+g.type+' '+visibleUnits.map(u=>u.name).join(' ')+' '+visibleReservations.map(r=>(r.guest_name||'')+' '+(r.phone||'')+' '+assignedNames(r)).join(' ')).toLowerCase();
   const turnoverUnit=u=>{const label=u.type==='room'?u.name:String(u.name).split('·').pop().trim(),s=u.housekeeping_status;
     if(s==='dirty')return '<button class="sc-bed dirty sc-hk-action" data-unit="'+u.id+'" data-hk="cleaning"><strong>'+esc(label)+'</strong><span>Vacant · not ready</span><span>Needs cleaning</span></button>';
     if(s==='cleaning')return '<button class="sc-bed cleaning sc-hk-action" data-unit="'+u.id+'" data-hk="clean"><strong>'+esc(label)+'</strong><span>Vacant · not ready</span><span>Cleaning</span></button>';
     if(s==='maintenance')return '<div class="sc-bed maintenance"><strong>'+esc(label)+'</strong><span>Maintenance</span></div>';
     return '<div class="sc-bed free"><strong>'+esc(label)+'</strong><span>Ready</span></div>'};
-  const unitTile=u=>{const rr=resForUnit(rows,u.id,state.date),label=u.type==='room'?u.name:String(u.name).split('·').pop().trim();
+  const unitTile=u=>{const rr=filtered?filterReservationForUnit(rows,u,state.roomFilter,state.date):resForUnit(rows,u.id,state.date),label=u.type==='room'?u.name:String(u.name).split('·').pop().trim();
     if(rr)return StayCorePMS.caps.reservations?'<button class="sc-bed occupied sc-open" data-id="'+rr.id+'"><strong>'+esc(label)+'</strong><span>'+esc(firstName(rr))+'</span><span>'+esc(rr.status==='checked_in'?'In house':'Arriving')+'</span></button>':'<div class="sc-bed occupied"><strong>'+esc(label)+'</strong><span>'+esc(rr.status==='checked_in'?'In house':'Occupied')+'</span></div>';
     return turnoverUnit(u)};
   let body='';
@@ -110,7 +115,7 @@ for(const g of rooms){
   cards.push('<article class="sc-room-card" data-search="'+esc(hay)+'"><header class="sc-room-head"><div><div class="sc-room-title">'+esc(g.key)+'</div><div class="sc-meta">'+esc(g.type)+(g.private?' · max '+g.capacity:'')+'</div></div><div class="sc-room-count"><strong>'+esc(stateText)+'</strong><span>'+esc(filtered?'Filtered units':(g.private?(occupied?firstName(fullReservations[0]):''):occupied+' occupied'))+'</span></div></header>'+body+footer+'</article>');
 }
 const filterLabel={all:'All units',arrivals:'Arrivals today',departures:'Departures today',inhouse:'In house',available:'Ready',cleaning:'Cleaning',maintenance:'Maintenance'}[state.roomFilter]||'Units';
-el('#sc-view').innerHTML='<section class="sc-toolbar"><div class="sc-list-title"><strong>'+filterLabel+'</strong><span>'+cards.length+' room'+(cards.length===1?'':'s')+'</span></div><div class="sc-datebar"><button class="button" id="sc-prev">‹</button><input id="sc-date" type="date" value="'+state.date+'"><button class="button" id="sc-next">›</button><button class="button sc-today-btn" id="sc-today-date">Today</button></div><input class="sc-search" id="sc-room-search" type="search" placeholder="Search guest, room or bed" value="'+esc(state.search)+'"><div class="sc-segments">'+(StayCorePMS.caps.reservations?[['all','All'],['arrivals','Arrivals'],['departures','Departures'],['inhouse','In house'],['available','Ready'],['cleaning','Cleaning']]:[['all','All'],['cleaning','To clean'],['available','Ready'],['inhouse','Occupied'],['maintenance','Maintenance']]).map(([v,l])=>'<button class="'+(state.roomFilter===v?'active':'')+'" data-filter="'+v+'">'+l+'</button>').join('')+'</div></section><section class="sc-room-list">'+(cards.length?cards.join(''):'<div class="sc-card sc-empty">No matching units.</div>')+(cards.length?'<div class="sc-card sc-empty sc-search-empty" hidden>No matching room, bed or guest.</div>':'')+'</section>';
+el('#sc-view').innerHTML='<section class="sc-toolbar"><div class="sc-list-title"><strong>'+filterLabel+'</strong><span>'+visibleUnitCount+' unit'+(visibleUnitCount===1?'':'s')+'</span></div><div class="sc-datebar"><button class="button" id="sc-prev">‹</button><input id="sc-date" type="date" value="'+state.date+'"><button class="button" id="sc-next">›</button><button class="button sc-today-btn" id="sc-today-date">Today</button></div><input class="sc-search" id="sc-room-search" type="search" placeholder="Search guest, room or bed" value="'+esc(state.search)+'"><div class="sc-segments">'+(StayCorePMS.caps.reservations?[['all','All'],['arrivals','Arrivals'],['departures','Departures'],['inhouse','In house'],['available','Ready'],['cleaning','Cleaning']]:[['all','All'],['cleaning','To clean'],['available','Ready'],['inhouse','Occupied'],['maintenance','Maintenance']]).map(([v,l])=>'<button class="'+(state.roomFilter===v?'active':'')+'" data-filter="'+v+'">'+l+'</button>').join('')+'</div></section><section class="sc-room-list">'+(cards.length?cards.join(''):'<div class="sc-card sc-empty">No matching units.</div>')+(cards.length?'<div class="sc-card sc-empty sc-search-empty" hidden>No matching room, bed or guest.</div>':'')+'</section>';
 el('#sc-prev').onclick=()=>{state.date=addDays(state.date,-1);renderRooms()};el('#sc-next').onclick=()=>{state.date=addDays(state.date,1);renderRooms()};el('#sc-today-date').onclick=()=>{state.date=StayCorePMS.today;renderRooms()};el('#sc-date').onchange=e=>{state.date=e.target.value;renderRooms()};
 const roomSearch=el('#sc-room-search');roomSearch.oninput=()=>applyCardSearch(roomSearch,'.sc-room-list','.sc-room-card');applyCardSearch(roomSearch,'.sc-room-list','.sc-room-card');
 document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{state.roomFilter=b.dataset.filter;renderRooms()});
@@ -138,13 +143,13 @@ if(state.more==='integrations')return renderIntegrations();
 const d=state.dashboard||await api('dashboard'),alerts=d.alerts||[];
 let html='<section class="sc-more-grid">';
 if(StayCorePMS.caps.payments) html+='<article class="sc-card sc-more-card"><h3>Money today</h3><div class="sc-meta">Active stays touching today</div><div class="sc-finance"><div><span class="sc-meta">Expected</span><strong>'+money(d.expected_revenue)+'</strong></div><div><span class="sc-meta">Collected</span><strong>'+money(d.collected)+'</strong></div></div></article>';
-html+='<article class="sc-card sc-more-card"><h3>Attention</h3><div class="sc-meta">'+alerts.length+' item'+(alerts.length===1?'':'s')+' need review</div><div class="sc-more-links">'+(alerts.length?alerts.slice(0,8).map(a=>'<button class="sc-open" data-id="'+a.reservation_id+'"><span>'+esc(a.message)+'</span><span>›</span></button>').join(''):'<div class="sc-meta">Nothing urgent.</div>')+'</div></article>';
+html+='<article class="sc-card sc-more-card"><h3>Attention</h3><div class="sc-meta">'+Number(d.attention_count??alerts.length)+' booking'+(Number(d.attention_count??alerts.length)===1?'':'s')+' need action</div><div class="sc-more-links">'+(Number(d.attention_count??alerts.length)?'<button id="sc-open-attention"><span>View attention details</span><span>›</span></button>':'<div class="sc-meta">Nothing urgent.</div>')+'</div></article>';
 html+='<article class="sc-card sc-more-card"><h3>Operations</h3><div class="sc-more-links"><button data-more="activity"><span>Activity log</span><span>›</span></button><button data-more="inventory"><span>Rooms & inventory</span><span>›</span></button>'+(StayCorePMS.caps.manager?'<button data-more="integrations"><span>Integrations</span><span>›</span></button>':'')+'</div></article>';
 if(StayCorePMS.caps.reports) html+='<article class="sc-card sc-more-card"><h3>Export</h3><div class="sc-meta">Download upcoming stays for reporting or handover.</div><div class="sc-actions"><button class="button" id="sc-export">Export CSV</button></div></article>';
 html+='</section>';
 el('#sc-view').innerHTML=html;
 document.querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{state.more=b.dataset.more;renderMore()});
-const exp=el('#sc-export');if(exp)exp.onclick=exportUpcoming;
+const exp=el('#sc-export');if(exp)exp.onclick=exportUpcoming;const attentionBtn=el('#sc-open-attention');if(attentionBtn)attentionBtn.onclick=()=>{if(StayCorePMS.attention_url)window.location.href=StayCorePMS.attention_url;else{state.tab='attention';renderAttention()}};
 bindOpen();
 };
 
