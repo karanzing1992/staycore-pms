@@ -263,6 +263,8 @@ final class StayCore_REST {
         $collected=0.0;
         if($ids){ $placeholders=implode(',',array_fill(0,count($ids),'%d')); $collected=(float)$wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(amount),0) FROM {$t['payments']} WHERE status='captured' AND reservation_id IN ($placeholders)",...array_map('intval',$ids))); }
         $alerts=[];
+        $recovery=$wpdb->get_results("SELECT id,reservation_id,title FROM {$t['tasks']} WHERE type='service_recovery' AND status IN ('open','in_progress') ORDER BY id DESC LIMIT 20",ARRAY_A);
+        foreach($recovery as $x) $alerts[]=['type'=>'service_recovery','reservation_id'=>(int)$x['reservation_id'],'message'=>'Guest needs service recovery'];
         $overdue=$wpdb->get_results($wpdb->prepare("SELECT id,guest_id,check_out FROM {$t['reservations']} WHERE status='checked_in' AND check_out<%s ORDER BY check_out",current_time('mysql')),ARRAY_A);
         foreach($overdue as $x) $alerts[]=['type'=>'overdue','reservation_id'=>(int)$x['id'],'message'=>'Checkout overdue'];
         $unpaid=$wpdb->get_results($wpdb->prepare("SELECT id,total FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s AND total>0",$end,$start),ARRAY_A);
@@ -571,6 +573,11 @@ final class StayCore_REST {
         $message=sanitize_textarea_field($p['message']??'');
         if($sentiment==='not_happy' && strlen(trim($message))<3) return new WP_Error('message_required','Tell us what went wrong so management can fix it.',['status'=>400]);
         self::merge_reservation_meta($id,['feedback_sentiment'=>$sentiment,'feedback_message'=>$message,'feedback_at'=>current_time('mysql')]);
+        if($sentiment==='not_happy'){
+            global $wpdb; $t=StayCore_DB::tables(); $now=current_time('mysql');
+            $open=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['tasks']} WHERE reservation_id=%d AND type='service_recovery' AND status IN ('open','in_progress') LIMIT 1",$id));
+            if(!$open) $wpdb->insert($t['tasks'],['reservation_id'=>$id,'type'=>'service_recovery','title'=>'Guest reported an unhappy stay','status'=>'open','priority'=>'high','due_at'=>$now,'notes'=>$message,'created_at'=>$now,'updated_at'=>$now]);
+        }
         StayCore_DB::log('guest_feedback','reservation',$id,$sentiment==='happy'?'Guest reported a happy stay.':'Guest requested service recovery.',['sentiment'=>$sentiment,'message'=>$message]);
         return rest_ensure_response(['saved'=>true,'sentiment'=>$sentiment,'message'=>$message,'config'=>self::feedback_config(),'reference'=>$row['external_ref']?:'#'.$row['id']]);
     }
