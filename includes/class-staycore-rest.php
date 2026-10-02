@@ -41,7 +41,7 @@ final class StayCore_REST {
             'status'=>'ok',
             'version'=>STAYCORE_PMS_VERSION,
             'features'=>[
-                'camera_only_id_capture'=>true,
+                'camera_and_gallery_id_capture'=>true,
                 'explicit_country_code'=>true,
                 'verified_id_binding'=>true,
                 'checkin_identity_gate'=>true,
@@ -357,16 +357,16 @@ final class StayCore_REST {
     }
 
     private static function parse_id_image(string $data_url) {
-        if(!preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#',$data_url,$m)) return new WP_Error('bad_id_image','Take a new ID photo with the camera.',['status'=>400]);
+        if(!preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#',$data_url,$m)) return new WP_Error('bad_id_image','Add a clear JPG, PNG or WebP image of the ID.',['status'=>400]);
         $bytes=base64_decode($m[2],true);
-        if($bytes===false || strlen($bytes)<20000) return new WP_Error('bad_id_image','The ID photo is too small or unreadable. Retake it with the full ID in frame.',['status'=>400]);
-        if(strlen($bytes)>2097152) return new WP_Error('id_image_too_large','The ID photo is too large. Retake it at the normal camera resolution.',['status'=>413]);
+        if($bytes===false || strlen($bytes)<20000) return new WP_Error('bad_id_image','The ID image is too small or unreadable. Use a clearer image with the full ID in frame.',['status'=>400]);
+        if(strlen($bytes)>2097152) return new WP_Error('id_image_too_large','The ID image is too large. Use a normal-resolution image.',['status'=>413]);
         $info=@getimagesizefromstring($bytes);
-        if(!$info || empty($info[0]) || empty($info[1])) return new WP_Error('bad_id_image','The captured file is not a readable image. Retake the ID photo.',['status'=>400]);
+        if(!$info || empty($info[0]) || empty($info[1])) return new WP_Error('bad_id_image','The selected file is not a readable image. Use another ID image.',['status'=>400]);
         $actual=image_type_to_mime_type((int)$info[2]);
         if(!in_array($actual,['image/jpeg','image/png','image/webp'],true)) return new WP_Error('bad_id_image','The captured ID image format is not supported.',['status'=>400]);
         $short=min((int)$info[0],(int)$info[1]); $long=max((int)$info[0],(int)$info[1]);
-        if($short<400 || $long<640) return new WP_Error('id_image_resolution','Move closer and retake the ID photo so the document is readable.',['status'=>400]);
+        if($short<400 || $long<640) return new WP_Error('id_image_resolution','Use a higher-resolution ID image so the document is readable.',['status'=>400]);
         return ['mime'=>$actual,'data'=>base64_encode($bytes),'width'=>(int)$info[0],'height'=>(int)$info[1],'updated_at'=>current_time('mysql')];
     }
 
@@ -736,7 +736,8 @@ final class StayCore_REST {
         $guest_id=(int)$row['guest_id'];
         $guest_meta=self::guest_meta($guest_id);
         if(!empty($p['id_image_data'])){
-            if(($p['capture_method']??'')!=='camera') return new WP_Error('camera_required','ID image must be captured with the camera during check-in.',['status'=>400]);
+            $capture_method=sanitize_key((string)($p['capture_method']??''));
+            if(!in_array($capture_method,['camera','gallery'],true)) return new WP_Error('id_source_required','Add the ID using the camera or gallery.',['status'=>400]);
             if(empty($p['id_confirm'])) return new WP_Error('id_confirmation_required','Confirm that the captured photo is the guest ID shown in the details.',['status'=>400]);
             $ocr_number=self::normalize_id_number((string)($p['ocr_id_number']??''));
             if($ocr_number!=='' && !hash_equals($ocr_number,$normalized_id)) return new WP_Error('id_mismatch','The ID number read from the photo does not match the ID number entered. Retake the photo or correct the details.',['status'=>409]);
@@ -744,12 +745,12 @@ final class StayCore_REST {
             if(is_wp_error($image)) return $image;
             $image['guest_id']=$guest_id;
             $image['reservation_id']=$id;
-            $image['capture_method']='camera';
+            $image['capture_method']=$capture_method;
             $image['id_number_hash']=self::id_number_hash($id_number);
             self::merge_guest_meta($guest_id,['id_image'=>$image]);
             $guest_meta['id_image']=$image;
         }
-        if(!is_array($guest_meta['id_image']??null) || !self::valid_guest_id_image($guest_id,$id_number,$guest_meta['id_image'])) return new WP_Error('id_image_required','Take a new camera photo of the same ID shown in the details.',['status'=>400]);
+        if(!is_array($guest_meta['id_image']??null) || !self::valid_guest_id_image($guest_id,$id_number,$guest_meta['id_image'])) return new WP_Error('id_image_required','Add a new image of the same ID shown in the details.',['status'=>400]);
 
         $wpdb->update($t['guests'],$updates,['id'=>$guest_id]);
         self::merge_reservation_meta($id,['precheckin_at'=>current_time('mysql')]);
