@@ -9,6 +9,7 @@ final class StayCore_DB {
             'guests' => $wpdb->prefix . 'staycore_guests',
             'reservations' => $wpdb->prefix . 'staycore_reservations',
             'reservation_units' => $wpdb->prefix . 'staycore_reservation_units',
+            'reservation_guests' => $wpdb->prefix . 'staycore_reservation_guests',
             'payments' => $wpdb->prefix . 'staycore_payments',
             'tasks' => $wpdb->prefix . 'staycore_tasks',
             'activity' => $wpdb->prefix . 'staycore_activity',
@@ -95,6 +96,24 @@ final class StayCore_DB {
             guests SMALLINT UNSIGNED NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id), UNIQUE KEY reservation_unit (reservation_id, unit_id), KEY reservation_id (reservation_id), KEY unit_id (unit_id)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$t['reservation_guests']} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            reservation_id BIGINT UNSIGNED NOT NULL,
+            guest_id BIGINT UNSIGNED NULL,
+            unit_id BIGINT UNSIGNED NULL,
+            role VARCHAR(20) NOT NULL DEFAULT 'member',
+            status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            label VARCHAR(120) NULL,
+            meta LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY reservation_id (reservation_id),
+            KEY guest_id (guest_id),
+            KEY unit_id (unit_id),
+            KEY status (status)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['payments']} (
