@@ -91,7 +91,7 @@ final class StayCore_Public {
             <div class="scg-card">
                 <p class="scg-eyebrow"><?php echo esc_html($property_name); ?></p>
                 <div class="scg-progress" aria-hidden="true"><span></span></div>
-                <div id="staycore-ci-body"><div class="scg-loading">Loading your booking…</div></div>
+                <div id="staycore-ci-body"><div class="scg-loading"><span class="scg-spinner" aria-hidden="true"></span>Loading your booking…</div></div>
             </div>
             <script>
             (()=>{const root=<?php echo wp_json_encode($root); ?>,token=<?php echo wp_json_encode($token); ?>,body=document.getElementById('staycore-ci-body');
