@@ -171,3 +171,25 @@ dialog.sc-dialog-fallback[open]{display:block!important;position:fixed!important
   .sc-group-person-actions{display:grid;grid-template-columns:1fr 1fr}
   .sc-group-person-actions .button,.sc-group-person-actions select,.sc-group-person-actions a{width:100%;max-width:none}
 }
+
+/* v0.7.1 audited UX refinements */
+.sc-search-empty{display:grid;gap:5px}
+.sc-search-empty strong{color:var(--sc-ink);font-size:14px}
+.sc-search-empty span{font-size:12px;color:var(--sc-muted)}
+.sc-calendar{position:relative;-webkit-overflow-scrolling:touch}
+.sc-cal-head>span:first-child,.sc-cal-row>strong{
+  position:sticky;
+  left:0;
+  z-index:3;
+  background:#fff;
+  box-shadow:6px 0 10px -10px rgba(0,0,0,.55);
+}
+.sc-cal-head>span:first-child{z-index:5;background:#faf9f6}
+.sc-cal-row>strong{font-weight:750}
+.sc-bed.free{background:#f7fbf7;border-color:#d8e8d9}
+.sc-bed.free span:last-child{color:#3f6e48;font-weight:700}
+@media(max-width:782px){
+  .sc-cal-head,.sc-cal-row{grid-template-columns:112px repeat(7,minmax(76px,1fr));min-width:720px}
+  .sc-cal-head span,.sc-cal-row>*{padding:10px}
+  .sc-cal-head>span:first-child,.sc-cal-row>strong{min-width:112px}
+}
