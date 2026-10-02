@@ -861,6 +861,13 @@ final class StayCore_REST {
         if($unit_id && !in_array($unit_id,$allowed,true)) return new WP_Error('unit_not_assigned','Choose a room or bed already assigned to this booking.',['status'=>400]);
         if(!$unit_id) $unit_id=$empty?(int)($empty['unit_id']??0):self::next_group_unit($id);
         if(!$unit_id) return new WP_Error('group_capacity_full','All assigned room/bed capacity is already allocated. Add inventory to the booking first.',['status'=>409]);
+        $capacity=(int)$wpdb->get_var($wpdb->prepare("SELECT capacity FROM {$t['units']} WHERE id=%d",$unit_id));
+        $exclude_slot=$empty?(int)$empty['id']:0;
+        $used=(int)$wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$t['reservation_guests']} WHERE reservation_id=%d AND unit_id=%d AND id<>%d",
+            $id,$unit_id,$exclude_slot
+        ));
+        if($used>=max(1,$capacity)) return new WP_Error('unit_capacity_full','That room or bed has no remaining group capacity.',['status'=>409]);
 
         if($empty){
             $wpdb->update($t['reservation_guests'],[
