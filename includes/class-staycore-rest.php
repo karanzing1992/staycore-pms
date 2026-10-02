@@ -307,12 +307,56 @@ final class StayCore_REST {
         return (bool)preg_match('/^\\+[1-9]\\d{7,14}$/',trim($phone));
     }
 
+    private static function build_international_phone(string $country_code,string $local) {
+        $cc=preg_replace('/\\D+/','',$country_code) ?: '';
+        $local=preg_replace('/\\D+/','',$local) ?: '';
+        $local=ltrim($local,'0');
+        if(!preg_match('/^[1-9]\\d{0,2}$/',$cc)) return new WP_Error('country_code_required','Choose a valid country calling code.',['status'=>400]);
+        if(!preg_match('/^\\d{6,12}$/',$local)) return new WP_Error('phone_required','Enter a valid local mobile number without the country code.',['status'=>400]);
+        $phone='+'.$cc.$local;
+        if(!self::valid_international_phone($phone)) return new WP_Error('phone_required','The full mobile number is not valid. Check the country code and number.',['status'=>400]);
+        return $phone;
+    }
+
+    private static function normalize_id_number(string $value): string {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]+/','',$value) ?: '');
+    }
+
+    private static function id_number_hash(string $value): string {
+        return hash_hmac('sha256',self::normalize_id_number($value),wp_salt('auth'));
+    }
+
+    private static function valid_guest_id_image(int $guest_id,string $id_number,array $image): bool {
+        if(empty($image['data']) || empty($image['mime'])) return false;
+        if((int)($image['guest_id']??0)!==$guest_id) return false;
+        $stored_hash=(string)($image['id_number_hash']??'');
+        if($stored_hash==='' || !hash_equals($stored_hash,self::id_number_hash($id_number))) return false;
+        return true;
+    }
+
+    private static function checkin_requirements(array $row): array {
+        $missing=[];
+        if(!self::valid_international_phone((string)($row['phone']??''))) $missing[]='phone';
+        if(trim((string)($row['nationality']??''))==='') $missing[]='nationality';
+        if(trim((string)($row['id_type']??''))==='' || self::normalize_id_number((string)($row['id_number']??''))==='') $missing[]='id';
+        $guest_id=(int)($row['guest_id']??0);
+        $image=self::guest_meta($guest_id)['id_image']??[];
+        if(!is_array($image) || !self::valid_guest_id_image($guest_id,(string)($row['id_number']??''),$image)) $missing[]='id_image';
+        return array_values(array_unique($missing));
+    }
+
     private static function parse_id_image(string $data_url) {
-        if(!preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#',$data_url,$m)) return new WP_Error('bad_id_image','Please upload a JPG, PNG or WebP image of your ID.',['status'=>400]);
+        if(!preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#',$data_url,$m)) return new WP_Error('bad_id_image','Take a new ID photo with the camera.',['status'=>400]);
         $bytes=base64_decode($m[2],true);
-        if($bytes===false || strlen($bytes)<500) return new WP_Error('bad_id_image','The ID image could not be read. Please take another photo.',['status'=>400]);
-        if(strlen($bytes)>2097152) return new WP_Error('id_image_too_large','The ID image is too large. Please retake it at a lower resolution.',['status'=>413]);
-        return ['mime'=>$m[1],'data'=>base64_encode($bytes),'updated_at'=>current_time('mysql')];
+        if($bytes===false || strlen($bytes)<20000) return new WP_Error('bad_id_image','The ID photo is too small or unreadable. Retake it with the full ID in frame.',['status'=>400]);
+        if(strlen($bytes)>2097152) return new WP_Error('id_image_too_large','The ID photo is too large. Retake it at the normal camera resolution.',['status'=>413]);
+        $info=@getimagesizefromstring($bytes);
+        if(!$info || empty($info[0]) || empty($info[1])) return new WP_Error('bad_id_image','The captured file is not a readable image. Retake the ID photo.',['status'=>400]);
+        $actual=image_type_to_mime_type((int)$info[2]);
+        if(!in_array($actual,['image/jpeg','image/png','image/webp'],true)) return new WP_Error('bad_id_image','The captured ID image format is not supported.',['status'=>400]);
+        $short=min((int)$info[0],(int)$info[1]); $long=max((int)$info[0],(int)$info[1]);
+        if($short<400 || $long<640) return new WP_Error('id_image_resolution','Move closer and retake the ID photo so the document is readable.',['status'=>400]);
+        return ['mime'=>$actual,'data'=>base64_encode($bytes),'width'=>(int)$info[0],'height'=>(int)$info[1],'updated_at'=>current_time('mysql')];
     }
 
     public static function dashboard(): WP_REST_Response {
