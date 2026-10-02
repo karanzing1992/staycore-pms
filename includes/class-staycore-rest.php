@@ -71,6 +71,7 @@ final class StayCore_REST {
                 'explicit_room_readiness_labels'=>true,
                 'enhanced_search_empty_states'=>true,
                 'simplified_more_attention'=>true,
+                'actionable_empty_states'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
