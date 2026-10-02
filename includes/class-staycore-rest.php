@@ -61,6 +61,7 @@ final class StayCore_REST {
                 'ios_whatsapp_same_tab'=>true,
                 'legacy_dialog_fallback'=>true,
                 'exact_self_checkin_time_gate'=>true,
+                'safari_dialog_recursion_hotfix'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
