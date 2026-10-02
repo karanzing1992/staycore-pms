@@ -608,7 +608,10 @@ final class StayCore_REST {
         if(!$guest) return new WP_Error('guest_not_found','Guest not found.',['status'=>404]);
         if($reservation_id){
             $owner=(int)$wpdb->get_var($wpdb->prepare("SELECT guest_id FROM {$t['reservations']} WHERE id=%d",$reservation_id));
-            if($owner!==$guest_id) return new WP_Error('reservation_guest_mismatch','This booking does not belong to this guest.',['status'=>409]);
+            if($owner!==$guest_id){
+                $member=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['reservation_guests']} WHERE reservation_id=%d AND guest_id=%d LIMIT 1",$reservation_id,$guest_id));
+                if(!$member) return new WP_Error('reservation_guest_mismatch','This booking does not belong to this guest.',['status'=>409]);
+            }
         }
         $id_type=sanitize_text_field((string)($p['id_type']??$guest['id_type']??''));
         $id_number=sanitize_text_field((string)($p['id_number']??$guest['id_number']??''));
