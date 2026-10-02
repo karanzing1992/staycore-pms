@@ -1222,10 +1222,30 @@ final class StayCore_REST {
         ]);
     }
 
+    private static function self_checkin_context(int $reservation_id,string $token,int $member_id=0) {
+        $row=self::reservation_row($reservation_id);
+        if(!$row) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+        if(!$member_id){
+            if(!self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+            return $row;
+        }
+        $member=self::group_member_row($reservation_id,$member_id);
+        if(!$member || empty($member['guest_id']) || $token==='' || !hash_equals(self::group_member_token($member),$token)) return new WP_Error('invalid_link','This group self check-in link is invalid.',['status'=>403]);
+        $row['guest_id']=(int)$member['guest_id'];
+        foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes'] as $field) $row[$field]=$member[$field]??'';
+        $row['group_member_id']=$member_id;
+        $row['group_member_status']=$member['status']??'pending';
+        $row['group_name']=$row['group']['group_name']??'';
+        if(!empty($member['unit_id'])){
+            $row['assignments']=array_values(array_filter($row['assignments'],static fn($a)=>(int)$a['unit_id']===(int)$member['unit_id']));
+        }
+        return $row;
+    }
+
     public static function self_checkin_get(WP_REST_Request $request) {
-        $id=absint($request['id']); $token=sanitize_text_field($request->get_param('token')?:'');
-        $row=self::reservation_row($id);
-        if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+        $id=absint($request['id']); $token=sanitize_text_field($request->get_param('token')?:''); $member_id=absint($request->get_param('member')?:0);
+        $row=self::self_checkin_context($id,$token,$member_id);
+        if(is_wp_error($row)) return $row;
         if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
         if(self::is_guest_blacklisted((int)$row['guest_id'])) return new WP_Error('guest_blacklisted','Self check-in is disabled for this booking. Please contact the front desk.',['status'=>409]);
@@ -1237,15 +1257,16 @@ final class StayCore_REST {
             'id'=>(int)$row['id'],'first_name'=>$row['first_name'],'reference'=>$row['external_ref']?:'#'.$row['id'],
             'check_in'=>$row['check_in'],'check_out'=>$row['check_out'],'assignment'=>implode(', ',array_column($row['assignments'],'name')),
             'nationality'=>(string)$row['nationality'],'id_type'=>(string)$row['id_type'],'id_number'=>(string)$row['id_number'],
-            'missing'=>array_values(array_unique($missing)),'precheckin'=>!empty($meta['precheckin_at']),'status'=>$row['status'],
+            'missing'=>array_values(array_unique($missing)),'precheckin'=>$member_id?in_array((string)($row['group_member_status']??''),['prechecked','checked_in'],true):!empty($meta['precheckin_at']),'status'=>$row['status'],
+            'group_member_id'=>$member_id,'group_name'=>(string)($row['group_name']??''),
             'can_checkin_now'=>($check_in_at=self::local_datetime((string)$row['check_in'])) ? $check_in_at<=current_datetime() : false
         ]);
     }
 
     public static function self_checkin_post(WP_REST_Request $request) {
-        global $wpdb; $t=StayCore_DB::tables(); $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??'');
-        $row=self::reservation_row($id);
-        if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
+        global $wpdb; $t=StayCore_DB::tables(); $id=absint($request['id']); $p=$request->get_json_params(); $token=sanitize_text_field($p['token']??''); $member_id=absint($p['member']??0);
+        $row=self::self_checkin_context($id,$token,$member_id);
+        if(is_wp_error($row)) return $row;
         if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
         if(self::is_guest_blacklisted((int)$row['guest_id'])) return new WP_Error('guest_blacklisted','Self check-in is disabled for this booking. Please contact the front desk.',['status'=>409]);
@@ -1292,8 +1313,20 @@ final class StayCore_REST {
         if(!is_array($guest_meta['id_image']??null) || !self::valid_guest_id_image($guest_id,$id_number,$guest_meta['id_image'])) return new WP_Error('id_image_required','Add a new image of the same ID shown in the details.',['status'=>400]);
 
         $wpdb->update($t['guests'],$updates,['id'=>$guest_id]);
-        self::merge_reservation_meta($id,['precheckin_at'=>current_time('mysql')]);
-        StayCore_DB::log('guest_prechecked','reservation',$id,'Guest completed self check-in details.');
+        if($member_id){
+            $member=self::group_member_row($id,$member_id); $mmeta=is_string($member['meta']??null)?json_decode((string)$member['meta'],true):[];
+            if(!is_array($mmeta)) $mmeta=[]; $mmeta['precheckin_at']=current_time('mysql');
+            $wpdb->update($t['reservation_guests'],['status'=>'prechecked','meta'=>wp_json_encode($mmeta),'updated_at'=>current_time('mysql')],['id'=>$member_id]);
+            self::merge_reservation_meta($id,['group_precheckin_last_at'=>current_time('mysql')]);
+            StayCore_DB::log('group_guest_prechecked','reservation',$id,'Group guest completed self check-in details.',['member_id'=>$member_id,'guest_id'=>$guest_id]);
+        } else {
+            self::merge_reservation_meta($id,['precheckin_at'=>current_time('mysql')]);
+            if(!empty($row['group']['is_group'])){
+                $lead_id=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['reservation_guests']} WHERE reservation_id=%d AND role='lead' LIMIT 1",$id));
+                if($lead_id) $wpdb->update($t['reservation_guests'],['status'=>'prechecked','updated_at'=>current_time('mysql')],['id'=>$lead_id]);
+            }
+            StayCore_DB::log('guest_prechecked','reservation',$id,'Guest completed self check-in details.');
+        }
 
         $now=current_datetime();
         $check_in_at=self::local_datetime((string)$row['check_in']);
@@ -1307,10 +1340,21 @@ final class StayCore_REST {
                 return rest_ensure_response(['state'=>'waiting_housekeeping']);
             }
         }
+        if($member_id){
+            $wpdb->update($t['reservation_guests'],['status'=>'checked_in','updated_at'=>current_time('mysql')],['id'=>$member_id]);
+            if($row['status']!=='checked_in') $wpdb->update($t['reservations'],['status'=>'checked_in','updated_at'=>current_time('mysql')],['id'=>$id]);
+            StayCore_DB::log('group_guest_checked_in','reservation',$id,'Group guest completed self check-in.',['member_id'=>$member_id,'guest_id'=>$guest_id]);
+            StayCore_Integrations::emit('group_member_status_changed',['reservation_id'=>$id,'member_id'=>$member_id,'status'=>'checked_in','via'=>'self_checkin']);
+            return rest_ensure_response(['state'=>'checked_in','member_id'=>$member_id]);
+        }
         if($row['status']!=='checked_in'){
             $wpdb->update($t['reservations'],['status'=>'checked_in','updated_at'=>current_time('mysql')],['id'=>$id]);
             StayCore_DB::log('self_checked_in','reservation',$id,'Guest completed self check-in.');
             StayCore_Integrations::emit('reservation_status_changed',['id'=>$id,'status'=>'checked_in','via'=>'self_checkin']);
+        }
+        if(!empty($row['group']['is_group'])){
+            $lead_id=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['reservation_guests']} WHERE reservation_id=%d AND role='lead' LIMIT 1",$id));
+            if($lead_id) $wpdb->update($t['reservation_guests'],['status'=>'checked_in','updated_at'=>current_time('mysql')],['id'=>$lead_id]);
         }
         return rest_ensure_response(['state'=>'checked_in']);
     }
