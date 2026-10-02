@@ -74,7 +74,6 @@ final class StayCore_Staff {
                     wp_set_current_user($user->ID);
                     wp_set_auth_cookie($user->ID,false,is_ssl());
                     do_action('wp_login',$user->user_login,$user);
-                    StayCore_DB::log('staff_login','user',$user->ID,'Staff signed in with PIN.');
                     wp_safe_redirect(home_url('/staff/'));
                     exit;
                 }
