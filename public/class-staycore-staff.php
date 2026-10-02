@@ -10,7 +10,7 @@ final class StayCore_Staff {
     }
 
     private static function is_staff_user(): bool {
-        return is_user_logged_in() && (current_user_can('staycore_view_pms') || current_user_can('manage_options'));
+        return is_user_logged_in() && StayCore_Access::can('staycore_view_pms');
     }
 
     private static function request_path(): string {
@@ -74,7 +74,6 @@ final class StayCore_Staff {
                     wp_set_current_user($user->ID);
                     wp_set_auth_cookie($user->ID,false,is_ssl());
                     do_action('wp_login',$user->user_login,$user);
-                    StayCore_DB::log('staff_login','user',$user->ID,'Staff signed in with PIN.');
                     wp_safe_redirect(home_url('/staff/'));
                     exit;
                 }

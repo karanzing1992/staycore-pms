@@ -43,7 +43,7 @@ final class StayCore_Admin {
         wp_localize_script('staycore-pms','StayCorePMS',self::client_config());
     }
     public static function render(): void {
-        if(!current_user_can('staycore_view_pms')&&!current_user_can('manage_options')) wp_die('Not allowed.');
+        if(!StayCore_Access::can('staycore_view_pms')) wp_die('Not allowed.');
         $can_reservations=StayCore_Access::can('staycore_manage_reservations');
         $can_manage=StayCore_Access::can('manage_staycore_pms');
         $can_payments=StayCore_Access::can('staycore_manage_payments');
