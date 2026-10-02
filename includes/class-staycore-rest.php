@@ -761,7 +761,14 @@ final class StayCore_REST {
         global $wpdb; $t=StayCore_DB::tables(); $p=apply_filters('staycore_pms_reservation_payload',$request->get_json_params()); $now=current_time('mysql');
         $first=sanitize_text_field($p['first_name']??''); $phone=sanitize_text_field($p['phone']??''); $email=sanitize_email($p['email']??'');
         $check_in=sanitize_text_field($p['check_in']??''); $check_out=sanitize_text_field($p['check_out']??'');
-        $adults=max(1,absint($p['adults']??1)); $children=absint($p['children']??0); $people=$adults+$children;
+        $adults=max(1,absint($p['adults']??1)); $children=absint($p['children']??0);
+        $group_booking=!empty($p['group_booking']);
+        $group_size=$group_booking?max(2,min(50,absint($p['group_size']??($adults+$children)))):($adults+$children);
+        if($group_booking){
+            if($children>=$group_size) $children=max(0,$group_size-1);
+            $adults=max(1,$group_size-$children);
+        }
+        $people=$adults+$children;
         $stay_type=sanitize_key($p['stay_type']??'dorm_any'); $unit_ids=self::normalize_unit_ids($p);
         $auto_assign=array_key_exists('auto_assign',$p)?(bool)$p['auto_assign']:!$unit_ids;
         $was_auto_assign=!$unit_ids && $auto_assign;
@@ -835,10 +842,65 @@ final class StayCore_REST {
         }
 
         $meta=['stay_type'=>$stay_type,'auto_assigned'=>$was_auto_assign];
+        if($group_booking){
+            $meta['group_booking']=true;
+            $meta['group_name']=sanitize_text_field((string)($p['group_name']??''));
+            $meta['group_size']=$group_size;
+        }
         if(isset($p['meta'])&&is_array($p['meta'])) $meta=array_merge($p['meta'],$meta);
         $data=['guest_id'=>$guest_id,'unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??'direct'),'external_ref'=>sanitize_text_field($p['external_ref']??''),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>sanitize_key($p['status']??'confirmed'),'total'=>(float)($p['total']??0),'currency'=>strtoupper(sanitize_text_field($p['currency']??'INR')),'notes'=>sanitize_textarea_field($p['notes']??''),'meta'=>wp_json_encode($meta),'created_at'=>$now,'updated_at'=>$now];
         $wpdb->insert($t['reservations'],$data); if(!$wpdb->insert_id) return new WP_Error('db_error','Could not create reservation.',['status'=>500]); $id=(int)$wpdb->insert_id;
         foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>$now]);
+
+        if($group_booking){
+            $slots=self::group_slot_units($unit_ids,$group_size);
+            $counts=[];
+            foreach($slots as $uid) $counts[$uid]=($counts[$uid]??0)+1;
+            foreach($unit_ids as $uid) $wpdb->update($t['reservation_units'],['guests'=>(int)($counts[$uid]??0)],['reservation_id'=>$id,'unit_id'=>$uid]);
+
+            $wpdb->insert($t['reservation_guests'],[
+                'reservation_id'=>$id,'guest_id'=>$guest_id,'unit_id'=>$slots[0]??$unit_ids[0],
+                'role'=>'lead','status'=>'pending','label'=>$first,'created_at'=>$now,'updated_at'=>$now,
+            ]);
+            $members=is_array($p['group_members']??null)?array_values($p['group_members']):[];
+            for($i=1;$i<$group_size;$i++){
+                $raw=is_array($members[$i-1]??null)?$members[$i-1]:[];
+                $mf=sanitize_text_field((string)($raw['first_name']??''));
+                $ml=sanitize_text_field((string)($raw['last_name']??''));
+                $mp=sanitize_text_field((string)($raw['phone']??''));
+                $me=sanitize_email((string)($raw['email']??''));
+                $member_guest_id=0;
+                if($mf!=='' || $mp!=='' || $me!==''){
+                    $blocked=self::find_blacklisted_guest($mp,$me,'');
+                    if($blocked){
+                        $b=self::guest_blacklist((int)$blocked['id']);
+                        return new WP_Error('group_guest_blacklisted','Group member '.($mf?:('#'.($i+1))).' is blacklisted.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blocked['id'],'reason'=>$b['reason']]);
+                    }
+                    $candidate=self::find_guest_row($mp,$me);
+                    if($candidate && $mf!=='' && strtolower(trim((string)$candidate['first_name']))===strtolower(trim($mf))){
+                        $member_guest_id=(int)$candidate['id'];
+                        $upd=['updated_at'=>$now];
+                        if($ml!=='') $upd['last_name']=$ml;
+                        if($mp!=='') $upd['phone']=$mp;
+                        if($me!=='') $upd['email']=$me;
+                        $wpdb->update($t['guests'],$upd,['id'=>$member_guest_id]);
+                    } else {
+                        $wpdb->insert($t['guests'],[
+                            'first_name'=>$mf?:('Guest '.($i+1)),'last_name'=>$ml,'phone'=>$mp,'email'=>$me,
+                            'created_at'=>$now,'updated_at'=>$now,
+                        ]);
+                        $member_guest_id=(int)$wpdb->insert_id;
+                    }
+                }
+                $label=trim($mf.' '.$ml);
+                if($label==='') $label='Guest '.($i+1);
+                $wpdb->insert($t['reservation_guests'],[
+                    'reservation_id'=>$id,'guest_id'=>$member_guest_id?:null,'unit_id'=>$slots[$i]??null,
+                    'role'=>'member','status'=>'pending','label'=>$label,'created_at'=>$now,'updated_at'=>$now,
+                ]);
+            }
+        }
+
         if(is_array($pending_id_image)){
             $method=sanitize_key((string)($p['capture_method']??'gallery'));
             if(!in_array($method,['camera','gallery'],true)) $method='gallery';
@@ -849,7 +911,7 @@ final class StayCore_REST {
             self::merge_guest_meta($guest_id,['id_image'=>$pending_id_image]);
             StayCore_DB::log('guest_id_uploaded','guest',$guest_id,'Guest ID image saved during booking creation.',['reservation_id'=>$id,'capture_method'=>$method]);
         }
-        StayCore_DB::log('reservation_created','reservation',$id,'Reservation created.',['unit_ids'=>$unit_ids,'auto_assigned'=>$auto_assign,'stay_type'=>$stay_type,'returning_guest'=>(bool)$existing]);
+        StayCore_DB::log('reservation_created','reservation',$id,$group_booking?'Group reservation created.':'Reservation created.',['unit_ids'=>$unit_ids,'auto_assigned'=>$auto_assign,'stay_type'=>$stay_type,'returning_guest'=>(bool)$existing,'group_booking'=>$group_booking,'group_size'=>$group_booking?$group_size:1]);
         StayCore_Integrations::emit('reservation_created',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
         return rest_ensure_response(self::reservation_row($id));
     }
