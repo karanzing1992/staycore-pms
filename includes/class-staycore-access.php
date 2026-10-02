@@ -194,7 +194,7 @@ final class StayCore_Access {
             return;
         }
 
-        $pin=preg_replace('/\D+/','',(string)wp_unslash($_POST['staycore_staff_pin'] ?? ''));
+        $pin=trim((string)wp_unslash($_POST['staycore_staff_pin'] ?? ''));
         if($pin!=='' && preg_match('/^\d{4}$/',$pin)){
             $current=(string)get_user_meta($user_id,self::PIN_META,true);
             if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
@@ -261,7 +261,7 @@ final class StayCore_Access {
 
     public static function authenticate_staff(string $name, string $pin) {
         $name = trim($name);
-        $pin = preg_replace('/\D+/','',$pin);
+        $pin = trim($pin);
 
         if (self::attempts(self::attempt_key($name)) >= self::PIN_ATTEMPTS || self::attempts(self::ip_key()) >= self::IP_ATTEMPTS) {
             return new WP_Error('staycore_pin_locked','Too many sign-in attempts. Try again in 15 minutes.');
