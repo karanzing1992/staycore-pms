@@ -1137,7 +1137,16 @@ final class StayCore_REST {
         $wpdb->update($t['guests'],$guest,['id'=>(int)$existing['guest_id']]);
         $data=['unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??$existing['source']),'external_ref'=>sanitize_text_field($p['external_ref']??$existing['external_ref']),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>$existing['status'],'total'=>(float)($p['total']??$existing['total']),'notes'=>sanitize_textarea_field($p['notes']??$existing['notes']),'updated_at'=>current_time('mysql')];
         $wpdb->update($t['reservations'],$data,['id'=>$id]);
-        if(isset($p['unit_ids'])){ $wpdb->delete($t['reservation_units'],['reservation_id'=>$id]); foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>current_time('mysql')]); }
+        if(isset($p['unit_ids'])){
+            $wpdb->delete($t['reservation_units'],['reservation_id'=>$id]);
+            foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>current_time('mysql')]);
+            if(!empty($existing['group']['is_group'])){
+                $members=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservation_guests']} WHERE reservation_id=%d ORDER BY CASE WHEN role='lead' THEN 0 ELSE 1 END,id",$id),ARRAY_A);
+                $slots=self::group_slot_units($unit_ids,count($members));
+                foreach($members as $i=>$m) $wpdb->update($t['reservation_guests'],['unit_id'=>$slots[$i]??null,'updated_at'=>current_time('mysql')],['id'=>(int)$m['id']]);
+                self::recount_group_assignment_counts($id);
+            }
+        }
         StayCore_DB::log('reservation_updated','reservation',$id,'Reservation details updated.',['unit_ids'=>$unit_ids]); StayCore_Integrations::emit('reservation_updated',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
         return rest_ensure_response(self::reservation_row($id));
     }
@@ -1150,6 +1159,8 @@ final class StayCore_REST {
         if(strtotime($r['check_in'])<=current_time('timestamp') && $target['housekeeping_status']!=='clean') return new WP_Error('unit_not_ready',$target['name'].' is vacant but not ready. Confirm cleaning with housekeeping before assigning.',['status'=>409,'unit_id'=>$to,'housekeeping_status'=>$target['housekeeping_status']]);
         if(self::active_overlap($to,$r['check_in'],$r['check_out'],$id)) return new WP_Error('unit_unavailable',$target['name'].' is unavailable for those dates.',['status'=>409]);
         $wpdb->update($t['reservation_units'],['unit_id'=>$to],['reservation_id'=>$id,'unit_id'=>$from]); if((int)$r['unit_id']===$from) $wpdb->update($t['reservations'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['id'=>$id]);
+        $wpdb->update($t['reservation_guests'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['reservation_id'=>$id,'unit_id'=>$from]);
+        self::recount_group_assignment_counts($id);
         StayCore_DB::log('unit_moved','reservation',$id,'Guest moved to another room/bed.',['from_unit_id'=>$from,'to_unit_id'=>$to]); StayCore_Integrations::emit('reservation_unit_moved',['id'=>$id,'from_unit_id'=>$from,'to_unit_id'=>$to]);
         return rest_ensure_response(self::reservation_row($id));
     }
