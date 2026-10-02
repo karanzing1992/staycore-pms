@@ -62,6 +62,10 @@ final class StayCore_REST {
                 'legacy_dialog_fallback'=>true,
                 'exact_self_checkin_time_gate'=>true,
                 'safari_dialog_recursion_hotfix'=>true,
+                'group_bookings'=>true,
+                'group_roster'=>true,
+                'per_guest_group_checkin'=>true,
+                'group_assignment_counts'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -92,6 +96,15 @@ final class StayCore_REST {
             ['methods'=>'GET','callback'=>[__CLASS__,'reservation_detail'],'permission_callback'=>[__CLASS__,'can_view']],
             ['methods'=>'PUT','callback'=>[__CLASS__,'update_reservation'],'permission_callback'=>[__CLASS__,'can_reservations']],
         ]);
+        register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/group',['methods'=>'GET','callback'=>[__CLASS__,'group_detail'],'permission_callback'=>[__CLASS__,'can_view']]);
+        register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/group/members',[
+            ['methods'=>'POST','callback'=>[__CLASS__,'add_group_member'],'permission_callback'=>[__CLASS__,'can_reservations']],
+        ]);
+        register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/group/members/(?P<member>\d+)',[
+            ['methods'=>'PUT','callback'=>[__CLASS__,'update_group_member'],'permission_callback'=>[__CLASS__,'can_reservations']],
+            ['methods'=>'DELETE','callback'=>[__CLASS__,'remove_group_member'],'permission_callback'=>[__CLASS__,'can_reservations']],
+        ]);
+        register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/group/members/(?P<member>\d+)/status',['methods'=>'POST','callback'=>[__CLASS__,'set_group_member_status'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/status',['methods'=>'POST','callback'=>[__CLASS__,'set_status'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/move',['methods'=>'POST','callback'=>[__CLASS__,'move_unit'],'permission_callback'=>[__CLASS__,'can_reservations']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/payments',[
