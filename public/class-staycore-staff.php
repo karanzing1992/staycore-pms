@@ -63,20 +63,18 @@ final class StayCore_Staff {
         if($_SERVER['REQUEST_METHOD']==='POST'){
             $nonce=sanitize_text_field(wp_unslash($_POST['_staycore_login_nonce']??''));
             if(!wp_verify_nonce($nonce,'staycore_staff_login')){
-                $error='Your login session expired. Please try again.';
+                $error='Your sign-in session expired. Please try again.';
             } else {
-                $creds=[
-                    'user_login'=>sanitize_text_field(wp_unslash($_POST['log']??'')),
-                    'user_password'=>(string)($_POST['pwd']??''),
-                    'remember'=>!empty($_POST['rememberme']),
-                ];
-                $user=wp_signon($creds,is_ssl());
+                $name=sanitize_text_field(wp_unslash($_POST['staff_name']??''));
+                $pin=(string)wp_unslash($_POST['staff_pin']??'');
+                $user=StayCore_Access::authenticate_staff($name,$pin);
                 if(is_wp_error($user)){
-                    $error='Incorrect username/email or password.';
-                } elseif(!user_can($user,'staycore_view_pms') && !user_can($user,'manage_options')){
-                    wp_logout();
-                    $error='This account does not have employee access.';
+                    $error=$user->get_error_message();
                 } else {
+                    wp_set_current_user($user->ID);
+                    wp_set_auth_cookie($user->ID,false,is_ssl());
+                    do_action('wp_login',$user->user_login,$user);
+                    StayCore_DB::log('staff_login','user',$user->ID,'Staff signed in with PIN.');
                     wp_safe_redirect(home_url('/staff/'));
                     exit;
                 }
@@ -86,24 +84,23 @@ final class StayCore_Staff {
         status_header(200);
         $action=esc_url(home_url('/staff-login/'));
         $logo=esc_html(get_option('staycore_pms_settings',[])['property_name']??'Andaz Vibe Stay');
-        echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Staff login · '.esc_html(get_bloginfo('name')).'</title>';
+        echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Staff sign in · '.esc_html(get_bloginfo('name')).'</title>';
         echo '<style>
         :root{color-scheme:light;--ink:#171713;--muted:#77786f;--line:#dfded7;--bg:#f4f3ef;--card:#fff}
         *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Arial,sans-serif}
         body{min-height:100dvh;display:grid;place-items:center;padding:20px}
         .sc-login{width:min(100%,420px);background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:0 18px 60px rgba(0,0,0,.06)}
         .sc-login .brand{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:9px}.sc-login h1{margin:0;font-size:30px;letter-spacing:-.04em}.sc-login p{color:var(--muted);line-height:1.5}
-        .sc-login form{display:grid;gap:14px;margin-top:22px}.sc-login label{display:grid;gap:6px;font-size:12px;color:var(--muted)}.sc-login input[type=text],.sc-login input[type=password]{width:100%;min-height:52px;border:1px solid var(--line);border-radius:14px;padding:0 14px;font-size:16px;background:#fff}
-        .sc-login .remember{display:flex;align-items:center;gap:8px;color:var(--ink)}.sc-login button{min-height:52px;border:0;border-radius:14px;background:var(--ink);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+        .sc-login form{display:grid;gap:14px;margin-top:22px}.sc-login label{display:grid;gap:6px;font-size:12px;color:var(--muted)}.sc-login input[type=text],.sc-login input[type=password]{width:100%;min-height:56px;border:1px solid var(--line);border-radius:14px;padding:0 14px;font-size:18px;background:#fff}
+        .sc-login input[name=staff_pin]{font-size:28px;letter-spacing:.38em;text-align:center;font-variant-numeric:tabular-nums}.sc-login button{min-height:54px;border:0;border-radius:14px;background:var(--ink);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
         .sc-login .error{padding:11px 12px;border-radius:12px;background:#fde8e3;font-size:13px;margin-top:14px}.sc-login .note{font-size:12px;text-align:center;margin-top:14px}
         </style></head><body><main class="sc-login"><div class="brand">'.$logo.'</div><h1>Employee login</h1><p>Sign in to open the staff dashboard.</p>';
         if($error) echo '<div class="error">'.esc_html($error).'</div>';
         echo '<form method="post" action="'.$action.'">';
         wp_nonce_field('staycore_staff_login','_staycore_login_nonce');
-        echo '<label>Username or email<input name="log" type="text" autocomplete="username" required autofocus></label>';
-        echo '<label>Password<input name="pwd" type="password" autocomplete="current-password" required></label>';
-        echo '<label class="remember"><input name="rememberme" type="checkbox" value="1"> Keep me signed in on this device</label>';
-        echo '<button type="submit">Open StayCore</button></form><div class="note">Employee access only</div></main></body></html>';
+        echo '<label>Name<input name="staff_name" type="text" autocomplete="username" required autofocus></label>';
+        echo '<label>4-digit PIN<input name="staff_pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="one-time-code" required></label>';
+        echo '<button type="submit">Open StayCore</button></form><div class="note">Name + 4-digit PIN · employee access only</div></main></body></html>';
         exit;
     }
 
