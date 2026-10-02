@@ -1,2 +1,3 @@
 force-deploy: 0.7.1
 reason: ux-audit-refinements
+retry: 2
