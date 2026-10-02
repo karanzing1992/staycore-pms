@@ -788,6 +788,151 @@ final class StayCore_REST {
         return rest_ensure_response(self::redact_reservation_for_current_user($row));
     }
 
+    public static function group_detail(WP_REST_Request $request) {
+        $id=absint($request['id']);
+        $row=self::reservation_row($id);
+        if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+        $group=$row['group']??['is_group'=>false];
+        if(empty($group['is_group'])) return rest_ensure_response($group);
+        if(!self::can_guests()){
+            unset($group['members']);
+        } else {
+            if(!self::can_guest_contact() && !empty($group['members'])) foreach($group['members'] as &$m){ unset($m['phone'],$m['email'],$m['self_checkin_url']); }
+            if(!self::can_guest_id() && !empty($group['members'])) foreach($group['members'] as &$m){ unset($m['nationality'],$m['id_type'],$m['id_number'],$m['identity_ready']); }
+        }
+        return rest_ensure_response($group);
+    }
+
+    public static function add_group_member(WP_REST_Request $request) {
+        global $wpdb; $t=StayCore_DB::tables();
+        $id=absint($request['id']); $row=self::reservation_row($id);
+        if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+        if(empty($row['group']['is_group'])) return new WP_Error('not_group','This is not a group booking.',['status'=>409]);
+        $p=$request->get_json_params(); $first=sanitize_text_field((string)($p['first_name']??''));
+        $last=sanitize_text_field((string)($p['last_name']??'')); $phone=sanitize_text_field((string)($p['phone']??''));
+        $email=sanitize_email((string)($p['email']??'')); $now=current_time('mysql');
+        if($first==='') return new WP_Error('first_name_required','Enter the guest first name.',['status'=>400]);
+        $blocked=self::find_blacklisted_guest($phone,$email,'');
+        if($blocked){
+            $b=self::guest_blacklist((int)$blocked['id']);
+            return new WP_Error('group_guest_blacklisted','This guest is blacklisted.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blocked['id'],'reason'=>$b['reason']]);
+        }
+
+        $guest_id=0; $candidate=self::find_guest_row($phone,$email);
+        if($candidate && strtolower(trim((string)$candidate['first_name']))===strtolower(trim($first))){
+            $guest_id=(int)$candidate['id'];
+            $upd=['updated_at'=>$now,'first_name'=>$first];
+            if($last!=='') $upd['last_name']=$last; if($phone!=='') $upd['phone']=$phone; if($email!=='') $upd['email']=$email;
+            $wpdb->update($t['guests'],$upd,['id'=>$guest_id]);
+        } else {
+            $wpdb->insert($t['guests'],['first_name'=>$first,'last_name'=>$last,'phone'=>$phone,'email'=>$email,'created_at'=>$now,'updated_at'=>$now]);
+            $guest_id=(int)$wpdb->insert_id;
+        }
+        if(!$guest_id) return new WP_Error('db_error','Could not create the group guest.',['status'=>500]);
+
+        $empty=$wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$t['reservation_guests']} WHERE reservation_id=%d AND role<>'lead' AND (guest_id IS NULL OR guest_id=0) ORDER BY id LIMIT 1",
+            $id
+        ),ARRAY_A);
+        $unit_id=absint($p['unit_id']??0);
+        $allowed=array_map(static fn($a)=>(int)$a['unit_id'],$row['assignments']);
+        if($unit_id && !in_array($unit_id,$allowed,true)) return new WP_Error('unit_not_assigned','Choose a room or bed already assigned to this booking.',['status'=>400]);
+        if(!$unit_id) $unit_id=$empty?(int)($empty['unit_id']??0):self::next_group_unit($id);
+        if(!$unit_id) return new WP_Error('group_capacity_full','All assigned room/bed capacity is already allocated. Add inventory to the booking first.',['status'=>409]);
+
+        if($empty){
+            $wpdb->update($t['reservation_guests'],[
+                'guest_id'=>$guest_id,'unit_id'=>$unit_id,'label'=>trim($first.' '.$last),'status'=>'pending','updated_at'=>$now,
+            ],['id'=>(int)$empty['id']]);
+            $member_id=(int)$empty['id'];
+        } else {
+            $wpdb->insert($t['reservation_guests'],[
+                'reservation_id'=>$id,'guest_id'=>$guest_id,'unit_id'=>$unit_id,'role'=>'member','status'=>'pending',
+                'label'=>trim($first.' '.$last),'created_at'=>$now,'updated_at'=>$now,
+            ]);
+            $member_id=(int)$wpdb->insert_id;
+            $meta=self::reservation_meta_array($row);
+            $size=max(2,(int)($meta['group_size']??count($row['group']['members']??[])))+1;
+            self::merge_reservation_meta($id,['group_size'=>$size]);
+            $wpdb->query($wpdb->prepare("UPDATE {$t['reservations']} SET adults=adults+1,updated_at=%s WHERE id=%d",$now,$id));
+        }
+        self::recount_group_assignment_counts($id);
+        StayCore_DB::log('group_member_added','reservation',$id,'Guest added to group booking.',['member_id'=>$member_id,'guest_id'=>$guest_id,'unit_id'=>$unit_id]);
+        StayCore_Integrations::emit('group_member_added',['reservation_id'=>$id,'member_id'=>$member_id,'guest_id'=>$guest_id,'unit_id'=>$unit_id]);
+        return rest_ensure_response(self::group_manifest($id));
+    }
+
+    public static function update_group_member(WP_REST_Request $request) {
+        global $wpdb; $t=StayCore_DB::tables();
+        $id=absint($request['id']); $member_id=absint($request['member']); $member=self::group_member_row($id,$member_id);
+        if(!$member) return new WP_Error('not_found','Group member not found.',['status'=>404]);
+        if(($member['role']??'')==='lead') return new WP_Error('lead_edit','Edit the lead guest from the main booking details.',['status'=>409]);
+        $p=$request->get_json_params(); $now=current_time('mysql');
+        $first=sanitize_text_field((string)($p['first_name']??$member['first_name']??''));
+        $last=sanitize_text_field((string)($p['last_name']??$member['last_name']??''));
+        $phone=sanitize_text_field((string)($p['phone']??$member['phone']??''));
+        $email=sanitize_email((string)($p['email']??$member['email']??''));
+        if($first==='') return new WP_Error('first_name_required','Enter the guest first name.',['status'=>400]);
+        $blocked=self::find_blacklisted_guest($phone,$email,'');
+        if($blocked && (int)$blocked['id']!==(int)($member['guest_id']??0)) return new WP_Error('group_guest_blacklisted','This guest is blacklisted.',['status'=>409]);
+
+        $guest_id=(int)($member['guest_id']??0);
+        if(!$guest_id){
+            $wpdb->insert($t['guests'],['first_name'=>$first,'last_name'=>$last,'phone'=>$phone,'email'=>$email,'created_at'=>$now,'updated_at'=>$now]);
+            $guest_id=(int)$wpdb->insert_id;
+        } else {
+            $wpdb->update($t['guests'],['first_name'=>$first,'last_name'=>$last,'phone'=>$phone,'email'=>$email,'updated_at'=>$now],['id'=>$guest_id]);
+        }
+        $unit_id=array_key_exists('unit_id',$p)?absint($p['unit_id']):(int)($member['unit_id']??0);
+        if($unit_id){
+            $row=self::reservation_row($id); $allowed=array_map(static fn($a)=>(int)$a['unit_id'],$row['assignments']);
+            if(!in_array($unit_id,$allowed,true)) return new WP_Error('unit_not_assigned','Choose a room or bed already assigned to this booking.',['status'=>400]);
+            $capacity=(int)$wpdb->get_var($wpdb->prepare("SELECT capacity FROM {$t['units']} WHERE id=%d",$unit_id));
+            $used=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservation_guests']} WHERE reservation_id=%d AND unit_id=%d AND id<>%d",$id,$unit_id,$member_id));
+            if($used>=max(1,$capacity)) return new WP_Error('unit_capacity_full','That room or bed has no remaining group capacity.',['status'=>409]);
+        }
+        $wpdb->update($t['reservation_guests'],['guest_id'=>$guest_id,'unit_id'=>$unit_id?:null,'label'=>trim($first.' '.$last),'updated_at'=>$now],['id'=>$member_id]);
+        self::recount_group_assignment_counts($id);
+        StayCore_DB::log('group_member_updated','reservation',$id,'Group guest details updated.',['member_id'=>$member_id,'guest_id'=>$guest_id,'unit_id'=>$unit_id]);
+        return rest_ensure_response(self::group_manifest($id));
+    }
+
+    public static function remove_group_member(WP_REST_Request $request) {
+        global $wpdb; $t=StayCore_DB::tables();
+        $id=absint($request['id']); $member_id=absint($request['member']); $member=self::group_member_row($id,$member_id);
+        if(!$member) return new WP_Error('not_found','Group member not found.',['status'=>404]);
+        if(($member['role']??'')==='lead') return new WP_Error('lead_remove','The lead guest cannot be removed from the group.',['status'=>409]);
+        $wpdb->update($t['reservation_guests'],[
+            'guest_id'=>null,'status'=>'pending','label'=>'Guest','meta'=>null,'updated_at'=>current_time('mysql'),
+        ],['id'=>$member_id]);
+        self::recount_group_assignment_counts($id);
+        StayCore_DB::log('group_member_cleared','reservation',$id,'Group roster slot cleared.',['member_id'=>$member_id]);
+        return rest_ensure_response(self::group_manifest($id));
+    }
+
+    public static function set_group_member_status(WP_REST_Request $request) {
+        global $wpdb; $t=StayCore_DB::tables();
+        $id=absint($request['id']); $member_id=absint($request['member']); $member=self::group_member_row($id,$member_id);
+        if(!$member) return new WP_Error('not_found','Group member not found.',['status'=>404]);
+        $status=sanitize_key((string)(($request->get_json_params()['status']??'')));
+        if(!in_array($status,['pending','prechecked','checked_in'],true)) return new WP_Error('bad_status','Choose pending, prechecked or checked in.',['status'=>400]);
+        if($status==='checked_in'){
+            if(empty($member['guest_id']) || !self::group_member_identity_ready($member)) return new WP_Error('checkin_requirements','Complete this guest’s phone, nationality, ID details and verified ID photo first.',['status'=>409]);
+            if(!empty($member['unit_id'])){
+                $unit=$wpdb->get_row($wpdb->prepare("SELECT name,status,housekeeping_status FROM {$t['units']} WHERE id=%d",(int)$member['unit_id']),ARRAY_A);
+                if(!$unit || ($unit['status']??'available')!=='available' || ($unit['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',($unit['name']??'Assigned unit').' is not ready.',['status'=>409]);
+            }
+        }
+        $wpdb->update($t['reservation_guests'],['status'=>$status,'updated_at'=>current_time('mysql')],['id'=>$member_id]);
+        if($status==='checked_in'){
+            $reservation=$wpdb->get_row($wpdb->prepare("SELECT status FROM {$t['reservations']} WHERE id=%d",$id),ARRAY_A);
+            if(($reservation['status']??'')==='confirmed') $wpdb->update($t['reservations'],['status'=>'checked_in','updated_at'=>current_time('mysql')],['id'=>$id]);
+        }
+        StayCore_DB::log('group_member_status','reservation',$id,'Group guest status changed to '.$status.'.',['member_id'=>$member_id]);
+        StayCore_Integrations::emit('group_member_status_changed',['reservation_id'=>$id,'member_id'=>$member_id,'status'=>$status]);
+        return rest_ensure_response(self::group_manifest($id));
+    }
+
     public static function create_reservation(WP_REST_Request $request) {
         global $wpdb; $t=StayCore_DB::tables(); $p=apply_filters('staycore_pms_reservation_payload',$request->get_json_params()); $now=current_time('mysql');
         $first=sanitize_text_field($p['first_name']??''); $phone=sanitize_text_field($p['phone']??''); $email=sanitize_email($p['email']??'');
