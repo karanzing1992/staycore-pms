@@ -20,11 +20,19 @@ final class StayCore_Admin {
                 'check_out_time'=>sanitize_text_field($all_settings['check_out_time']??'11:00'),
             ],
             'caps'=>[
-                'reservations'=>current_user_can('staycore_manage_reservations')||current_user_can('manage_options'),
-                'payments'=>current_user_can('staycore_manage_payments')||current_user_can('manage_options'),
-                'housekeeping'=>current_user_can('staycore_manage_housekeeping')||current_user_can('manage_options'),
-                'manager'=>current_user_can('manage_staycore_pms')||current_user_can('manage_options'),
-                'reports'=>current_user_can('staycore_view_reports')||current_user_can('manage_options'),
+                'reservations'=>StayCore_Access::can('staycore_manage_reservations'),
+                'guests'=>StayCore_Access::can('staycore_view_guests'),
+                'guest_contact'=>StayCore_Access::can('staycore_view_guest_contact'),
+                'guest_id'=>StayCore_Access::can('staycore_view_guest_id'),
+                'guest_id_upload'=>StayCore_Access::can('staycore_upload_guest_id'),
+                'payments'=>StayCore_Access::can('staycore_manage_payments'),
+                'checkout'=>StayCore_Access::can('staycore_checkout'),
+                'housekeeping'=>StayCore_Access::can('staycore_manage_housekeeping'),
+                'manager'=>StayCore_Access::can('manage_staycore_pms'),
+                'reports'=>StayCore_Access::can('staycore_view_reports'),
+                'activity'=>StayCore_Access::can('staycore_view_activity'),
+                'staff'=>StayCore_Access::can('staycore_manage_staff'),
+                'settings'=>StayCore_Access::can('staycore_manage_settings'),
             ],
         ];
     }
@@ -36,9 +44,12 @@ final class StayCore_Admin {
     }
     public static function render(): void {
         if(!current_user_can('staycore_view_pms')&&!current_user_can('manage_options')) wp_die('Not allowed.');
-        $can_reservations=current_user_can('staycore_manage_reservations')||current_user_can('manage_options');
-        $can_manage=current_user_can('manage_staycore_pms')||current_user_can('manage_options');
-        $title=$can_manage?'Manager':($can_reservations?'Front Desk':'Housekeeping');
+        $can_reservations=StayCore_Access::can('staycore_manage_reservations');
+        $can_manage=StayCore_Access::can('manage_staycore_pms');
+        $can_payments=StayCore_Access::can('staycore_manage_payments');
+        $can_housekeeping=StayCore_Access::can('staycore_manage_housekeeping');
+        $can_staff=StayCore_Access::can('staycore_manage_staff');
+        $title=$can_staff?'Owner':($can_manage?'Manager':($can_reservations?'Front Desk':($can_payments?'Accounts':($can_housekeeping?'Housekeeping':'Read Only'))));
         echo '<div class="wrap staycore-shell"><div id="staycore-app">';
         echo '<header class="staycore-head"><div><p class="eyebrow">ANDAZ VIBE STAY</p><h1>'.esc_html($title).'</h1><p class="sc-today-label">'.esc_html(wp_date('D, j M')).'</p></div>'.($can_reservations?'<button class="button button-primary sc-new" id="sc-new-booking">+ Booking</button>':'').'</header>';
         echo '<section class="staycore-kpis" id="sc-kpis"></section><section id="sc-alerts"></section>';
