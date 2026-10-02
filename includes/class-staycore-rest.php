@@ -794,6 +794,20 @@ final class StayCore_REST {
             $b=self::guest_blacklist((int)$blacklisted_match['id']);
             return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be booked.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blacklisted_match['id'],'reason'=>$b['reason']]);
         }
+        if($group_booking && is_array($p['group_members']??null)){
+            foreach(array_values($p['group_members']) as $idx=>$raw){
+                if(!is_array($raw)) continue;
+                $mf=sanitize_text_field((string)($raw['first_name']??''));
+                $mp=sanitize_text_field((string)($raw['phone']??''));
+                $me=sanitize_email((string)($raw['email']??''));
+                if($mf==='' && $mp==='' && $me==='') continue;
+                $blocked=self::find_blacklisted_guest($mp,$me,'');
+                if($blocked){
+                    $b=self::guest_blacklist((int)$blocked['id']);
+                    return new WP_Error('group_guest_blacklisted','Group member '.($mf?:('#'.($idx+2))).' is blacklisted.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blocked['id'],'reason'=>$b['reason']]);
+                }
+            }
+        }
         if($was_auto_assign){
             $assigned=self::auto_assign_units($check_in,$check_out,$people,$stay_type);
             if(is_wp_error($assigned)) return $assigned;
@@ -871,11 +885,6 @@ final class StayCore_REST {
                 $me=sanitize_email((string)($raw['email']??''));
                 $member_guest_id=0;
                 if($mf!=='' || $mp!=='' || $me!==''){
-                    $blocked=self::find_blacklisted_guest($mp,$me,'');
-                    if($blocked){
-                        $b=self::guest_blacklist((int)$blocked['id']);
-                        return new WP_Error('group_guest_blacklisted','Group member '.($mf?:('#'.($i+1))).' is blacklisted.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blocked['id'],'reason'=>$b['reason']]);
-                    }
                     $candidate=self::find_guest_row($mp,$me);
                     if($candidate && $mf!=='' && strtolower(trim((string)$candidate['first_name']))===strtolower(trim($mf))){
                         $member_guest_id=(int)$candidate['id'];
