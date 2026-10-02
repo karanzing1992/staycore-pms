@@ -66,6 +66,11 @@ final class StayCore_REST {
                 'group_roster'=>true,
                 'per_guest_group_checkin'=>true,
                 'group_assignment_counts'=>true,
+                'ux_audit_refinements'=>true,
+                'sticky_mobile_calendar_context'=>true,
+                'explicit_room_readiness_labels'=>true,
+                'enhanced_search_empty_states'=>true,
+                'simplified_more_attention'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
