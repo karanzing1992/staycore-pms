@@ -6,6 +6,8 @@ final class StayCore_Access {
     private const PREVIOUS_PIN_META = 'staycore_staff_previous_pin_hash';
     private const NAME_META = 'staycore_staff_name';
     private const PRESET_META = 'staycore_staff_preset';
+    private const ACTIVE_META = 'staycore_staff_active';
+    private const LAST_LOGIN_META = 'staycore_staff_last_login';
     private const PIN_ATTEMPTS = 5;
     private const PIN_LOCK_SECONDS = 900;
     private const IP_ATTEMPTS = 25;
@@ -92,11 +94,127 @@ final class StayCore_Access {
         }
         foreach($presets[$preset]['caps'] as $cap) $user->add_cap($cap,true);
         update_user_meta($user_id,self::PRESET_META,$preset);
+        update_user_meta($user_id,self::ACTIVE_META,'1');
 
         if(class_exists('StayCore_DB')){
             StayCore_DB::log('staff_access_changed','user',$user_id,'StayCore staff access changed.',['preset'=>$preset]);
         }
         return true;
+    }
+
+    public static function preset_label(string $preset): string {
+        $presets=self::presets();
+        return isset($presets[$preset]) ? (string)$presets[$preset]['label'] : '';
+    }
+
+    public static function staff_name(int $user_id): string {
+        $user=get_userdata($user_id);
+        if(!$user instanceof WP_User) return '';
+        $name=trim((string)get_user_meta($user_id,self::NAME_META,true));
+        return $name!==''?$name:(string)$user->display_name;
+    }
+
+    public static function preset(int $user_id): string {
+        return sanitize_key((string)get_user_meta($user_id,self::PRESET_META,true));
+    }
+
+    public static function is_active(int $user_id): bool {
+        $raw=get_user_meta($user_id,self::ACTIVE_META,true);
+        return $raw==='' ? true : (string)$raw==='1';
+    }
+
+    public static function has_pin(int $user_id): bool {
+        return (string)get_user_meta($user_id,self::PIN_META,true)!=='';
+    }
+
+    public static function has_previous_pin(int $user_id): bool {
+        return (string)get_user_meta($user_id,self::PREVIOUS_PIN_META,true)!=='';
+    }
+
+    public static function last_login(int $user_id): string {
+        return (string)get_user_meta($user_id,self::LAST_LOGIN_META,true);
+    }
+
+    public static function name_available(string $name,int $exclude_user_id=0): bool {
+        global $wpdb;
+        $normalized=self::normalized_name($name);
+        if($normalized==='') return false;
+        $ids=$wpdb->get_col($wpdb->prepare(
+            "SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key=%s AND LOWER(TRIM(meta_value))=%s",
+            self::NAME_META,$normalized
+        ));
+        foreach(array_map('intval',$ids) as $id) if($id!==$exclude_user_id) return false;
+        return true;
+    }
+
+    public static function set_staff_name(int $user_id,string $name) {
+        $name=trim(sanitize_text_field($name));
+        if($name==='' || mb_strlen($name)>80) return new WP_Error('bad_staff_name','Enter a staff sign-in name.');
+        if(!self::name_available($name,$user_id)) return new WP_Error('staff_name_taken','That staff sign-in name is already in use.');
+        update_user_meta($user_id,self::NAME_META,$name);
+        if(class_exists('StayCore_DB')) StayCore_DB::log('staff_name_changed','user',$user_id,'Staff sign-in name changed.');
+        return true;
+    }
+
+    public static function clear_access(int $user_id): bool {
+        $user=get_userdata($user_id);
+        if(!$user instanceof WP_User) return false;
+        foreach(self::capabilities() as $cap) if($cap!=='read') $user->remove_cap($cap);
+        return true;
+    }
+
+    public static function set_active(int $user_id,bool $active) {
+        $user=get_userdata($user_id);
+        if(!$user instanceof WP_User) return new WP_Error('staff_not_found','Staff user not found.');
+        $preset=self::preset($user_id);
+        if($active){
+            if($preset==='' || !isset(self::presets()[$preset])) return new WP_Error('staff_preset_required','Choose a PMS access role before enabling this staff member.');
+            self::assign_preset($user_id,$preset);
+            update_user_meta($user_id,self::ACTIVE_META,'1');
+            if(class_exists('StayCore_DB')) StayCore_DB::log('staff_enabled','user',$user_id,'Staff access enabled.');
+        } else {
+            self::clear_access($user_id);
+            update_user_meta($user_id,self::ACTIVE_META,'0');
+            self::revoke_sessions($user_id,false);
+            if(class_exists('StayCore_DB')) StayCore_DB::log('staff_disabled','user',$user_id,'Staff access disabled and sessions revoked.');
+        }
+        return true;
+    }
+
+    public static function set_pin(int $user_id,string $pin,bool $revoke_sessions=true) {
+        if(!get_userdata($user_id)) return new WP_Error('staff_not_found','Staff user not found.');
+        $pin=trim($pin);
+        if(!preg_match('/^\d{4}$/',$pin)) return new WP_Error('bad_pin','PIN must be exactly 4 digits.');
+        $current=(string)get_user_meta($user_id,self::PIN_META,true);
+        if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
+        update_user_meta($user_id,self::PIN_META,wp_hash_password($pin));
+        if($revoke_sessions) self::revoke_sessions($user_id,$user_id===get_current_user_id());
+        if(class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_changed','user',$user_id,'Staff PIN changed; prior sessions revoked.');
+        return true;
+    }
+
+    public static function revert_pin(int $user_id) {
+        $current=(string)get_user_meta($user_id,self::PIN_META,true);
+        $previous=(string)get_user_meta($user_id,self::PREVIOUS_PIN_META,true);
+        if($previous==='') return new WP_Error('no_previous_pin','No previous PIN is available to restore.');
+        update_user_meta($user_id,self::PIN_META,$previous);
+        if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
+        self::revoke_sessions($user_id,$user_id===get_current_user_id());
+        if(class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_reverted','user',$user_id,'Staff PIN reverted; prior sessions revoked.');
+        return true;
+    }
+
+    public static function revoke_sessions(int $user_id,bool $keep_current=false): void {
+        if(!class_exists('WP_Session_Tokens')) require_once ABSPATH.WPINC.'/class-wp-session-tokens.php';
+        $manager=WP_Session_Tokens::get_instance($user_id);
+        if($keep_current && $user_id===get_current_user_id()){
+            $token=wp_get_session_token();
+            if($token!=='') $manager->destroy_others($token);
+            else $manager->destroy_all();
+        } else {
+            $manager->destroy_all();
+        }
+        if(class_exists('StayCore_DB')) StayCore_DB::log('staff_sessions_revoked','user',$user_id,'Staff sessions revoked.');
     }
 
     public static function ensure_roles(): void {
@@ -169,7 +287,7 @@ final class StayCore_Access {
                 'fields' => 'ids',
             ]);
             $dupes = array_values(array_filter(array_map('intval',$dupes),fn($id)=>$id !== $user_id));
-            if (!$dupes) update_user_meta($user_id,self::NAME_META,$name);
+            if (!$dupes) self::set_staff_name($user_id,$name);
         }
 
         $preset=sanitize_key((string)wp_unslash($_POST['staycore_staff_preset'] ?? ''));
@@ -187,19 +305,14 @@ final class StayCore_Access {
             $current=(string)get_user_meta($user_id,self::PIN_META,true);
             $previous=(string)get_user_meta($user_id,self::PREVIOUS_PIN_META,true);
             if($previous!==''){
-                update_user_meta($user_id,self::PIN_META,$previous);
-                if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
-                if(class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_reverted','user',$user_id,'Staff PIN reverted to previous value.');
+                self::revert_pin($user_id);
             }
             return;
         }
 
         $pin=trim((string)wp_unslash($_POST['staycore_staff_pin'] ?? ''));
         if($pin!=='' && preg_match('/^\d{4}$/',$pin)){
-            $current=(string)get_user_meta($user_id,self::PIN_META,true);
-            if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
-            update_user_meta($user_id,self::PIN_META,wp_hash_password($pin));
-            if(class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_changed','user',$user_id,'Staff PIN changed.');
+            self::set_pin($user_id,$pin,true);
         }
     }
 
@@ -255,7 +368,7 @@ final class StayCore_Access {
 
         if (count($ids) !== 1) return null;
         $user = get_userdata((int)$ids[0]);
-        if (!$user instanceof WP_User || !user_can($user,'staycore_view_pms')) return null;
+        if (!$user instanceof WP_User || !user_can($user,'staycore_view_pms') || !self::is_active((int)$user->ID)) return null;
         return $user;
     }
 
@@ -286,6 +399,8 @@ final class StayCore_Access {
         }
 
         self::clear_attempts($name);
+        update_user_meta((int)$user->ID,self::LAST_LOGIN_META,current_time('mysql'));
+        if(class_exists('StayCore_DB')) StayCore_DB::log('staff_login','user',(int)$user->ID,'Staff signed in.');
         return $user;
     }
 }
