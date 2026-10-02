@@ -218,21 +218,25 @@ final class StayCore_REST {
             $user=get_userdata($existing_id);
         }
 
+        $cleanup_created=static function() use (&$created,&$existing_id): void {
+            if(!$created || !$existing_id) return;
+            if(!function_exists('wp_delete_user')) require_once ABSPATH.'wp-admin/includes/user.php';
+            wp_delete_user($existing_id);
+        };
         $set_name=StayCore_Access::set_staff_name($existing_id,$name);
         if(is_wp_error($set_name)){
-            if($created) wp_delete_user($existing_id);
+            $cleanup_created();
             return $set_name;
         }
         if(!StayCore_Access::assign_preset($existing_id,$preset)){
-            if($created) wp_delete_user($existing_id);
+            $cleanup_created();
             return new WP_Error('staff_access_failed','Could not assign PMS access.',['status'=>500]);
         }
         $set_pin=StayCore_Access::set_pin($existing_id,$pin,true);
         if(is_wp_error($set_pin)){
-            if($created) wp_delete_user($existing_id);
+            $cleanup_created();
             return $set_pin;
         }
-        update_user_meta($existing_id,'staycore_staff_active','1');
         StayCore_DB::log($created?'staff_created':'staff_linked','user',$existing_id,$created?'Staff user created.':'Existing WordPress/POS user linked to StayCore.',['preset'=>$preset]);
         return rest_ensure_response(self::staff_member_record(get_userdata($existing_id)));
     }
@@ -249,9 +253,12 @@ final class StayCore_REST {
         if(array_key_exists('preset',$p)){
             $preset=sanitize_key((string)$p['preset']);
             if(!isset(StayCore_Access::presets()[$preset])) return new WP_Error('staff_preset_required','Choose a valid PMS access role.',['status'=>400]);
+            if($id===get_current_user_id() && !current_user_can('manage_options') && $preset!=='owner') return new WP_Error('cannot_demote_self','You cannot remove your own Owner access. Ask another Owner or WordPress administrator.',['status'=>409]);
             $was_active=StayCore_Access::is_active($id);
+            $old_preset=StayCore_Access::preset($id);
             StayCore_Access::assign_preset($id,$preset);
             if(!$was_active) StayCore_Access::set_active($id,false);
+            elseif($old_preset!==$preset) StayCore_Access::revoke_sessions($id,$id===get_current_user_id());
         }
         if(array_key_exists('active',$p)){
             $active=(bool)$p['active'];
