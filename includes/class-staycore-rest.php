@@ -46,6 +46,7 @@ final class StayCore_REST {
                 'verified_id_binding'=>true,
                 'checkin_identity_gate'=>true,
                 'safe_returning_guest_match'=>true,
+                'guest_blacklist_gate'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -56,6 +57,7 @@ final class StayCore_REST {
         register_rest_route('staycore/v1','/housekeeping',['methods'=>'POST','callback'=>[__CLASS__,'set_housekeeping'],'permission_callback'=>[__CLASS__,'can_housekeeping']]);
         register_rest_route('staycore/v1','/guest-lookup',['methods'=>'GET','callback'=>[__CLASS__,'guest_lookup'],'permission_callback'=>[__CLASS__,'can_guests']]);
         register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/id-image',['methods'=>'GET','callback'=>[__CLASS__,'guest_id_image'],'permission_callback'=>[__CLASS__,'can_guest_id']]);
+        register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/blacklist',['methods'=>'POST','callback'=>[__CLASS__,'set_guest_blacklist'],'permission_callback'=>[__CLASS__,'can_manage']]);
         register_rest_route('staycore/v1','/self-checkin/(?P<id>\\d+)',[
             ['methods'=>'GET','callback'=>[__CLASS__,'self_checkin_get'],'permission_callback'=>'__return_true'],
             ['methods'=>'POST','callback'=>[__CLASS__,'self_checkin_post'],'permission_callback'=>'__return_true'],
@@ -113,6 +115,10 @@ final class StayCore_REST {
         $row['feedback_url']=self::feedback_url($row);
         $guest_meta=self::guest_meta((int)$row['guest_id']);
         $row['has_id_image']=!empty($guest_meta['id_image']['data']);
+        $blacklist=self::guest_blacklist((int)$row['guest_id']);
+        $row['is_blacklisted']=$blacklist['active'];
+        $row['blacklist_reason']=$blacklist['reason'];
+        $row['blacklist_updated_at']=$blacklist['updated_at'];
         return $row;
     }
 
@@ -124,7 +130,7 @@ final class StayCore_REST {
 
         if(!$can_guest){
             $row['guest_name']='Occupied';
-            foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image'] as $key) unset($row[$key]);
+            foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image','is_blacklisted','blacklist_reason','blacklist_updated_at'] as $key) unset($row[$key]);
         } else {
             if(!$can_contact){
                 foreach(['phone','email','guest_notes','notes','self_checkin_url','feedback_url'] as $key) unset($row[$key]);
@@ -285,6 +291,62 @@ final class StayCore_REST {
         $wpdb->update($t['guests'],['meta'=>wp_json_encode($meta),'updated_at'=>current_time('mysql')],['id'=>$guest_id]);
     }
 
+    private static function guest_blacklist(int $guest_id): array {
+        $meta=self::guest_meta($guest_id);
+        $b=$meta['blacklist']??[];
+        if(!is_array($b)) $b=[];
+        return [
+            'active'=>!empty($b['active']),
+            'reason'=>sanitize_text_field((string)($b['reason']??'')),
+            'updated_at'=>sanitize_text_field((string)($b['updated_at']??'')),
+            'updated_by'=>absint($b['updated_by']??0),
+        ];
+    }
+
+    private static function is_guest_blacklisted(int $guest_id): bool {
+        return !empty(self::guest_blacklist($guest_id)['active']);
+    }
+
+    private static function find_blacklisted_guest(string $phone='',string $email='',string $id_number=''): ?array {
+        global $wpdb; $t=StayCore_DB::tables();
+        $candidates=[];
+        $phone=sanitize_text_field($phone); $email=sanitize_email($email); $id_number=trim($id_number);
+        if($phone!=='' || $email!==''){
+            $row=self::find_guest_row($phone,$email);
+            if($row) $candidates[(int)$row['id']]=$row;
+        }
+        if($id_number!==''){
+            $needle=self::normalize_id_number($id_number);
+            $rows=$wpdb->get_results("SELECT * FROM {$t['guests']} WHERE id_number IS NOT NULL AND id_number<>'' ORDER BY id DESC LIMIT 500",ARRAY_A);
+            foreach($rows as $row){
+                if(self::normalize_id_number((string)$row['id_number'])===$needle) $candidates[(int)$row['id']]=$row;
+            }
+        }
+        foreach($candidates as $row) if(self::is_guest_blacklisted((int)$row['id'])) return $row;
+        return null;
+    }
+
+    public static function set_guest_blacklist(WP_REST_Request $request) {
+        global $wpdb; $t=StayCore_DB::tables();
+        $guest_id=absint($request['id']);
+        $guest=$wpdb->get_row($wpdb->prepare("SELECT id,first_name,last_name FROM {$t['guests']} WHERE id=%d",$guest_id),ARRAY_A);
+        if(!$guest) return new WP_Error('not_found','Guest not found.',['status'=>404]);
+        $p=$request->get_json_params();
+        $active=!empty($p['active']);
+        $reason=sanitize_text_field((string)($p['reason']??''));
+        if($active && strlen(trim($reason))<3) return new WP_Error('reason_required','Add a short reason before blacklisting this guest.',['status'=>400]);
+        $record=[
+            'active'=>$active,
+            'reason'=>$active?$reason:'',
+            'updated_at'=>current_time('mysql'),
+            'updated_by'=>get_current_user_id(),
+        ];
+        self::merge_guest_meta($guest_id,['blacklist'=>$record]);
+        StayCore_DB::log($active?'guest_blacklisted':'guest_blacklist_removed','guest',$guest_id,$active?'Guest blacklisted.':'Guest removed from blacklist.',['reason'=>$record['reason']]);
+        StayCore_Integrations::emit($active?'guest_blacklisted':'guest_blacklist_removed',['guest_id'=>$guest_id,'reason'=>$record['reason']]);
+        return rest_ensure_response(['guest_id'=>$guest_id,'blacklist'=>$record]);
+    }
+
     private static function feedback_token(array $row): string {
         return hash_hmac('sha256','staycore-feedback|'.(int)$row['id'].'|'.(int)$row['guest_id'].'|'.(string)$row['created_at'],wp_salt('auth'));
     }
@@ -400,6 +462,9 @@ final class StayCore_REST {
         $overdue=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status='checked_in' AND check_out<%s ORDER BY check_out",current_time('mysql')),ARRAY_A);
         foreach($overdue as $x) $add_attention((int)$x['id'],'overdue','Checkout overdue');
 
+        $active_guests=$wpdb->get_results("SELECT id,guest_id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in')",ARRAY_A);
+        foreach($active_guests as $x) if(self::is_guest_blacklisted((int)$x['guest_id'])) $add_attention((int)$x['id'],'blacklist','Blacklisted guest on active booking');
+
         $unpaid=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s AND total>0",$end,$start),ARRAY_A);
         foreach($unpaid as $x){
             $ps=self::payment_summary((int)$x['id']);
@@ -425,12 +490,12 @@ final class StayCore_REST {
 
         $attention=array_values($attention);
         usort($attention,static function(array $a,array $b): int {
-            $weight=['service_recovery'=>0,'overdue'=>1,'payment'=>2,'contact'=>3];
+            $weight=['blacklist'=>0,'service_recovery'=>1,'overdue'=>2,'payment'=>3,'contact'=>4];
             $aw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$a['issues']??[]));
             $bw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$b['issues']??[]));
             return $aw<=>$bw ?: ((int)$a['reservation_id']<=> (int)$b['reservation_id']);
         });
-        $breakdown=['payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
+        $breakdown=['blacklist'=>0,'payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
         foreach($attention as $item) foreach($item['issues'] as $issue) if(isset($breakdown[$issue['type']])) $breakdown[$issue['type']]++;
 
         $out=[
@@ -491,6 +556,10 @@ final class StayCore_REST {
         foreach($rows as &$row){
             $row['assignments']=self::assignments((int)$row['id']);
             if(self::can_payments()) $row['payment']=self::payment_summary((int)$row['id']);
+            $blacklist=self::guest_blacklist((int)$row['guest_id']);
+            $row['is_blacklisted']=$blacklist['active'];
+            $row['blacklist_reason']=$blacklist['reason'];
+            $row['blacklist_updated_at']=$blacklist['updated_at'];
             $row=self::redact_reservation_for_current_user($row);
         }
         return rest_ensure_response($rows);
@@ -514,6 +583,11 @@ final class StayCore_REST {
         $was_auto_assign=!$unit_ids && $auto_assign;
         if(!$first || !$check_in || !$check_out) return new WP_Error('missing_fields','Guest name, check-in and check-out are required.',['status'=>400]);
         if(strtotime($check_out)<=strtotime($check_in)) return new WP_Error('bad_dates','Check-out must be after check-in.',['status'=>400]);
+        $blacklisted_match=self::find_blacklisted_guest($phone,$email,sanitize_text_field($p['id_number']??''));
+        if($blacklisted_match){
+            $b=self::guest_blacklist((int)$blacklisted_match['id']);
+            return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be booked.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blacklisted_match['id'],'reason'=>$b['reason']]);
+        }
         if($was_auto_assign){
             $assigned=self::auto_assign_units($check_in,$check_out,$people,$stay_type);
             if(is_wp_error($assigned)) return $assigned;
@@ -532,6 +606,10 @@ final class StayCore_REST {
 
         $existing=null; $explicit_guest=!empty($p['guest_id']);
         if($explicit_guest) $existing=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['guests']} WHERE id=%d",absint($p['guest_id'])),ARRAY_A);
+        if($existing && self::is_guest_blacklisted((int)$existing['id'])){
+            $b=self::guest_blacklist((int)$existing['id']);
+            return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be booked.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$existing['id'],'reason'=>$b['reason']]);
+        }
         if(!$existing && !$explicit_guest){
             $candidate=self::find_guest_row($phone,$email);
             if($candidate){
@@ -579,7 +657,7 @@ final class StayCore_REST {
         if(($adults+$children)>$capacity) return new WP_Error('capacity_exceeded','Selected units allow a maximum of '.$capacity.' guests.',['status'=>400]);
         $guest=['first_name'=>sanitize_text_field($p['first_name']??$existing['first_name']),'last_name'=>sanitize_text_field($p['last_name']??$existing['last_name']),'phone'=>sanitize_text_field($p['phone']??$existing['phone']),'email'=>sanitize_email($p['email']??$existing['email']),'nationality'=>sanitize_text_field($p['nationality']??$existing['nationality']),'id_type'=>sanitize_text_field($p['id_type']??$existing['id_type']),'id_number'=>sanitize_text_field($p['id_number']??$existing['id_number']),'notes'=>sanitize_textarea_field($p['guest_notes']??$existing['guest_notes']),'updated_at'=>current_time('mysql')];
         $wpdb->update($t['guests'],$guest,['id'=>(int)$existing['guest_id']]);
-        $data=['unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??$existing['source']),'external_ref'=>sanitize_text_field($p['external_ref']??$existing['external_ref']),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>sanitize_key($p['status']??$existing['status']),'total'=>(float)($p['total']??$existing['total']),'notes'=>sanitize_textarea_field($p['notes']??$existing['notes']),'updated_at'=>current_time('mysql')];
+        $data=['unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??$existing['source']),'external_ref'=>sanitize_text_field($p['external_ref']??$existing['external_ref']),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>$existing['status'],'total'=>(float)($p['total']??$existing['total']),'notes'=>sanitize_textarea_field($p['notes']??$existing['notes']),'updated_at'=>current_time('mysql')];
         $wpdb->update($t['reservations'],$data,['id'=>$id]);
         if(isset($p['unit_ids'])){ $wpdb->delete($t['reservation_units'],['reservation_id'=>$id]); foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>current_time('mysql')]); }
         StayCore_DB::log('reservation_updated','reservation',$id,'Reservation details updated.',['unit_ids'=>$unit_ids]); StayCore_Integrations::emit('reservation_updated',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
@@ -605,6 +683,7 @@ final class StayCore_REST {
         if($status==='checked_in'){
             $row=self::reservation_row($id);
             if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+            if(!empty($row['is_blacklisted'])) return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be checked in.'.(!empty($row['blacklist_reason'])?' Reason: '.$row['blacklist_reason']:''),['status'=>409,'reason'=>$row['blacklist_reason']??'']);
             $missing=self::checkin_requirements($row);
             if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified camera ID photo before check-in.',['status'=>409,'missing'=>$missing]);
             foreach($assign as $a) if(($a['status']??'available')!=='available' || ($a['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',$a['name'].' is not ready. Housekeeping must mark it clean before check-in.',['status'=>409]);
@@ -662,6 +741,8 @@ final class StayCore_REST {
             'phone'=>$guest['phone'],'email'=>$guest['email'],'nationality'=>$guest['nationality'],
             'id_type'=>$guest['id_type'],'id_number'=>$guest['id_number'],
             'has_id_image'=>!empty(self::guest_meta((int)$guest['id'])['id_image']['data']),
+            'is_blacklisted'=>self::is_guest_blacklisted((int)$guest['id']),
+            'blacklist_reason'=>self::guest_blacklist((int)$guest['id'])['reason'],
             'notes'=>$guest['notes'],'stay_count'=>$stays,'last_stay'=>$last,
         ];
         if(!self::can_guest_contact()) foreach(['phone','email','notes'] as $key) unset($data[$key]);
@@ -691,6 +772,7 @@ final class StayCore_REST {
         if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
         if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
+        if(self::is_guest_blacklisted((int)$row['guest_id'])) return new WP_Error('guest_blacklisted','Self check-in is disabled for this booking. Please contact the front desk.',['status'=>409]);
         $meta=is_string($row['meta']??null)?json_decode($row['meta'],true):[];
         if(!is_array($meta)) $meta=[];
         $missing=self::checkin_requirements($row);
@@ -710,6 +792,7 @@ final class StayCore_REST {
         if(!$row || !self::valid_self_checkin_token($row,$token)) return new WP_Error('invalid_link','This self check-in link is invalid.',['status'=>403]);
         if(self::public_link_expired($row,'checkin')) return new WP_Error('expired_link','This self check-in link has expired. Please contact the front desk.',['status'=>410]);
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
+        if(self::is_guest_blacklisted((int)$row['guest_id'])) return new WP_Error('guest_blacklisted','Self check-in is disabled for this booking. Please contact the front desk.',['status'=>409]);
 
         $updates=['updated_at'=>current_time('mysql')];
         if(array_key_exists('phone',$p)){
