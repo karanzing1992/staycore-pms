@@ -519,9 +519,19 @@ final class StayCore_REST {
         }
         if(($adults+$children)>$capacity) return new WP_Error('capacity_exceeded','Selected units allow a maximum of '.$capacity.' guests.',['status'=>400]);
 
-        $existing=null;
-        if(!empty($p['guest_id'])) $existing=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['guests']} WHERE id=%d",absint($p['guest_id'])),ARRAY_A);
-        if(!$existing) $existing=self::find_guest_row($phone,$email);
+        $existing=null; $explicit_guest=!empty($p['guest_id']);
+        if($explicit_guest) $existing=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['guests']} WHERE id=%d",absint($p['guest_id'])),ARRAY_A);
+        if(!$existing && !$explicit_guest){
+            $candidate=self::find_guest_row($phone,$email);
+            if($candidate){
+                $candidate_first=strtolower(trim((string)$candidate['first_name']));
+                $incoming_first=strtolower(trim($first));
+                $candidate_last=strtolower(trim((string)($candidate['last_name']??'')));
+                $incoming_last=strtolower(trim(sanitize_text_field($p['last_name']??'')));
+                $name_match=$candidate_first!=='' && $incoming_first!=='' && $candidate_first===$incoming_first && ($candidate_last==='' || $incoming_last==='' || $candidate_last===$incoming_last);
+                if($name_match) $existing=$candidate;
+            }
+        }
         if($existing){
             $guest_id=(int)$existing['id']; $updates=['updated_at'=>$now];
             foreach(['first_name','last_name','nationality','id_type','id_number'] as $field){
@@ -582,6 +592,10 @@ final class StayCore_REST {
         if(!in_array($status,['confirmed','checked_in','checked_out','cancelled','no_show'],true)) return new WP_Error('bad_status','Invalid reservation status.',['status'=>400]);
         $assign=self::assignments($id);
         if($status==='checked_in'){
+            $row=self::reservation_row($id);
+            if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+            $missing=self::checkin_requirements($row);
+            if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified camera ID photo before check-in.',['status'=>409,'missing'=>$missing]);
             foreach($assign as $a) if(($a['status']??'available')!=='available' || ($a['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',$a['name'].' is not ready. Housekeeping must mark it clean before check-in.',['status'=>409]);
         }
         if($status==='checked_out'){
@@ -660,17 +674,13 @@ final class StayCore_REST {
         if(in_array($row['status'],['cancelled','no_show','checked_out'],true)) return new WP_Error('booking_closed','This booking is no longer open for self check-in.',['status'=>409]);
         $meta=is_string($row['meta']??null)?json_decode($row['meta'],true):[];
         if(!is_array($meta)) $meta=[];
-        $guest_meta=self::guest_meta((int)$row['guest_id']);
-        $missing=[];
-        if(!self::valid_international_phone((string)$row['phone'])) $missing[]='phone';
+        $missing=self::checkin_requirements($row);
         if(empty($row['email'])) $missing[]='email';
-        if(empty($row['nationality'])) $missing[]='nationality';
-        if(empty($row['id_type']) || empty($row['id_number'])) $missing[]='id';
-        if(empty($guest_meta['id_image']['data'])) $missing[]='id_image';
         return rest_ensure_response([
             'id'=>(int)$row['id'],'first_name'=>$row['first_name'],'reference'=>$row['external_ref']?:'#'.$row['id'],
             'check_in'=>$row['check_in'],'check_out'=>$row['check_out'],'assignment'=>implode(', ',array_column($row['assignments'],'name')),
-            'missing'=>$missing,'precheckin'=>!empty($meta['precheckin_at']),'status'=>$row['status'],
+            'nationality'=>(string)$row['nationality'],'id_type'=>(string)$row['id_type'],'id_number'=>(string)$row['id_number'],
+            'missing'=>array_values(array_unique($missing)),'precheckin'=>!empty($meta['precheckin_at']),'status'=>$row['status'],
             'can_checkin_now'=>substr($row['check_in'],0,10)<=current_time('Y-m-d')
         ]);
     }
@@ -684,34 +694,45 @@ final class StayCore_REST {
 
         $updates=['updated_at'=>current_time('mysql')];
         if(array_key_exists('phone',$p)){
-            $cc=preg_replace('/\\D+/', '', (string)($p['country_code']??''));
-            $local=preg_replace('/\\D+/', '', (string)$p['phone']);
-            if(!$cc || strlen($local)<6) return new WP_Error('phone_required','Choose a country code and enter your mobile number.',['status'=>400]);
-            $updates['phone']='+'.$cc.$local;
+            $phone=self::build_international_phone((string)($p['country_code']??''),(string)$p['phone']);
+            if(is_wp_error($phone)) return $phone;
+            $updates['phone']=$phone;
         }
         if(!empty($p['email'])) $updates['email']=sanitize_email($p['email']);
-        if(!empty($p['nationality'])) $updates['nationality']=sanitize_text_field($p['nationality']);
-        if(!empty($p['id_type'])) $updates['id_type']=sanitize_text_field($p['id_type']);
-        if(!empty($p['id_number'])) $updates['id_number']=sanitize_text_field($p['id_number']);
+        if(array_key_exists('nationality',$p)) $updates['nationality']=sanitize_text_field((string)$p['nationality']);
+        if(array_key_exists('id_type',$p)) $updates['id_type']=sanitize_text_field((string)$p['id_type']);
+        if(array_key_exists('id_number',$p)) $updates['id_number']=sanitize_text_field((string)$p['id_number']);
 
         $phone=$updates['phone']??(string)$row['phone'];
-        $nationality=$updates['nationality']??(string)$row['nationality'];
-        $id_type=$updates['id_type']??(string)$row['id_type'];
-        $id_number=$updates['id_number']??(string)$row['id_number'];
-        if(!self::valid_international_phone($phone)) return new WP_Error('phone_required','A mobile number with country code is required.',['status'=>400]);
-        if(!$nationality) return new WP_Error('nationality_required','Please select or enter your nationality.',['status'=>400]);
-        if(!$id_type || !$id_number) return new WP_Error('id_required','ID type and ID number are required.',['status'=>400]);
+        $nationality=trim((string)($updates['nationality']??$row['nationality']));
+        $id_type=trim((string)($updates['id_type']??$row['id_type']));
+        $id_number=trim((string)($updates['id_number']??$row['id_number']));
+        if(!self::valid_international_phone($phone)) return new WP_Error('phone_required','A valid mobile number with country code is required.',['status'=>400]);
+        if(strlen($nationality)<2) return new WP_Error('nationality_required','Nationality is required.',['status'=>400]);
+        if(!in_array($id_type,['Passport','Aadhaar','Driving Licence','Other'],true)) return new WP_Error('id_required','Choose a valid ID type.',['status'=>400]);
+        $normalized_id=self::normalize_id_number($id_number);
+        if(strlen($normalized_id)<4 || strlen($normalized_id)>40) return new WP_Error('id_required','Enter a valid ID number.',['status'=>400]);
+        if($id_type==='Aadhaar' && !preg_match('/^\\d{12}$/',$normalized_id)) return new WP_Error('id_required','Aadhaar number must contain 12 digits.',['status'=>400]);
 
-        $guest_meta=self::guest_meta((int)$row['guest_id']);
+        $guest_id=(int)$row['guest_id'];
+        $guest_meta=self::guest_meta($guest_id);
         if(!empty($p['id_image_data'])){
+            if(($p['capture_method']??'')!=='camera') return new WP_Error('camera_required','ID image must be captured with the camera during check-in.',['status'=>400]);
+            if(empty($p['id_confirm'])) return new WP_Error('id_confirmation_required','Confirm that the captured photo is the guest ID shown in the details.',['status'=>400]);
+            $ocr_number=self::normalize_id_number((string)($p['ocr_id_number']??''));
+            if($ocr_number!=='' && !hash_equals($ocr_number,$normalized_id)) return new WP_Error('id_mismatch','The ID number read from the photo does not match the ID number entered. Retake the photo or correct the details.',['status'=>409]);
             $image=self::parse_id_image((string)$p['id_image_data']);
             if(is_wp_error($image)) return $image;
-            self::merge_guest_meta((int)$row['guest_id'],['id_image'=>$image]);
+            $image['guest_id']=$guest_id;
+            $image['reservation_id']=$id;
+            $image['capture_method']='camera';
+            $image['id_number_hash']=self::id_number_hash($id_number);
+            self::merge_guest_meta($guest_id,['id_image'=>$image]);
             $guest_meta['id_image']=$image;
         }
-        if(empty($guest_meta['id_image']['data'])) return new WP_Error('id_image_required','Please take or upload a clear photo of your ID.',['status'=>400]);
+        if(!is_array($guest_meta['id_image']??null) || !self::valid_guest_id_image($guest_id,$id_number,$guest_meta['id_image'])) return new WP_Error('id_image_required','Take a new camera photo of the same ID shown in the details.',['status'=>400]);
 
-        $wpdb->update($t['guests'],$updates,['id'=>(int)$row['guest_id']]);
+        $wpdb->update($t['guests'],$updates,['id'=>$guest_id]);
         self::merge_reservation_meta($id,['precheckin_at'=>current_time('mysql')]);
         StayCore_DB::log('guest_prechecked','reservation',$id,'Guest completed self check-in details.');
 
