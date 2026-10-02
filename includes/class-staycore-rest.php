@@ -133,6 +133,101 @@ final class StayCore_REST {
         ),ARRAY_A);
     }
 
+    private static function reservation_meta_array(array $row): array {
+        $meta=is_string($row['meta']??null)?json_decode((string)$row['meta'],true):($row['meta']??[]);
+        return is_array($meta)?$meta:[];
+    }
+
+    private static function group_member_token(array $member): string {
+        return hash_hmac('sha256','staycore-group-checkin|'.(int)$member['reservation_id'].'|'.(int)$member['id'].'|'.(int)($member['guest_id']??0).'|'.(string)$member['created_at'],wp_salt('auth'));
+    }
+
+    private static function group_member_self_checkin_url(array $reservation,array $member): string {
+        if(empty($member['guest_id'])) return '';
+        $page=(int)get_option('staycore_self_checkin_page_id',0);
+        $base=$page?get_permalink($page):home_url('/self-check-in/');
+        return add_query_arg([
+            'booking'=>(int)$reservation['id'],
+            'member'=>(int)$member['id'],
+            'token'=>self::group_member_token($member),
+        ],$base);
+    }
+
+    private static function group_member_row(int $reservation_id,int $member_id): ?array {
+        global $wpdb; $t=StayCore_DB::tables();
+        $row=$wpdb->get_row($wpdb->prepare(
+            "SELECT rg.*,g.first_name,g.last_name,g.phone,g.email,g.nationality,g.id_type,g.id_number,g.notes guest_notes,u.name unit_name,u.status unit_status,u.housekeeping_status
+             FROM {$t['reservation_guests']} rg
+             LEFT JOIN {$t['guests']} g ON g.id=rg.guest_id
+             LEFT JOIN {$t['units']} u ON u.id=rg.unit_id
+             WHERE rg.id=%d AND rg.reservation_id=%d",
+            $member_id,$reservation_id
+        ),ARRAY_A);
+        return $row?:null;
+    }
+
+    private static function group_member_identity_ready(array $member): bool {
+        $guest_id=(int)($member['guest_id']??0);
+        if(!$guest_id) return false;
+        if(!self::valid_international_phone((string)($member['phone']??''))) return false;
+        if(trim((string)($member['nationality']??''))==='') return false;
+        $id_type=trim((string)($member['id_type']??''));
+        $id_number=trim((string)($member['id_number']??''));
+        if($id_type==='' || self::normalize_id_number($id_number)==='') return false;
+        $image=self::guest_meta($guest_id)['id_image']??[];
+        return is_array($image) && self::valid_guest_id_image($guest_id,$id_number,$image);
+    }
+
+    private static function group_manifest(int $reservation_id,?array $reservation=null): array {
+        global $wpdb; $t=StayCore_DB::tables();
+        if(!$reservation) $reservation=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['reservations']} WHERE id=%d",$reservation_id),ARRAY_A);
+        if(!$reservation) return ['is_group'=>false];
+        $meta=self::reservation_meta_array($reservation);
+        $is_group=!empty($meta['group_booking']);
+        if(!$is_group) return ['is_group'=>false];
+
+        $rows=$wpdb->get_results($wpdb->prepare(
+            "SELECT rg.*,g.first_name,g.last_name,g.phone,g.email,g.nationality,g.id_type,g.id_number,u.name unit_name
+             FROM {$t['reservation_guests']} rg
+             LEFT JOIN {$t['guests']} g ON g.id=rg.guest_id
+             LEFT JOIN {$t['units']} u ON u.id=rg.unit_id
+             WHERE rg.reservation_id=%d ORDER BY CASE WHEN rg.role='lead' THEN 0 ELSE 1 END,rg.id",
+            $reservation_id
+        ),ARRAY_A);
+        $ready=0; $checked=0; $named=0;
+        foreach($rows as &$m){
+            $m['guest_id']=(int)($m['guest_id']??0);
+            $m['unit_id']=(int)($m['unit_id']??0);
+            $m['name']=trim(((string)($m['first_name']??'')).' '.((string)($m['last_name']??'')));
+            if($m['name']!=='') $named++;
+            $m['identity_ready']=self::group_member_identity_ready($m);
+            if($m['identity_ready']) $ready++;
+            if(($m['status']??'')==='checked_in') $checked++;
+            $m['self_checkin_url']=$m['guest_id']?self::group_member_self_checkin_url($reservation,$m):'';
+        }
+        $size=max(2,(int)($meta['group_size']??count($rows)?:2));
+        return [
+            'is_group'=>true,
+            'group_name'=>sanitize_text_field((string)($meta['group_name']??'')),
+            'group_size'=>$size,
+            'named_count'=>$named,
+            'identity_ready_count'=>$ready,
+            'checked_in_count'=>$checked,
+            'members'=>$rows,
+        ];
+    }
+
+    private static function group_slot_units(array $unit_ids,int $people): array {
+        global $wpdb; $t=StayCore_DB::tables();
+        $slots=[];
+        foreach($unit_ids as $uid){
+            $capacity=max(1,(int)$wpdb->get_var($wpdb->prepare("SELECT capacity FROM {$t['units']} WHERE id=%d",$uid)));
+            for($i=0;$i<$capacity && count($slots)<$people;$i++) $slots[]=(int)$uid;
+            if(count($slots)>=$people) break;
+        }
+        return $slots;
+    }
+
     private static function reservation_row(int $id): ?array {
         global $wpdb; $t=StayCore_DB::tables();
         $row=$wpdb->get_row($wpdb->prepare(
@@ -150,6 +245,8 @@ final class StayCore_REST {
         $row['is_blacklisted']=$blacklist['active'];
         $row['blacklist_reason']=$blacklist['reason'];
         $row['blacklist_updated_at']=$blacklist['updated_at'];
+        $row['group']=self::group_manifest($id,$row);
+        $row['is_group']=!empty($row['group']['is_group']);
         return $row;
     }
 
@@ -161,13 +258,15 @@ final class StayCore_REST {
 
         if(!$can_guest){
             $row['guest_name']='Occupied';
-            foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image','is_blacklisted','blacklist_reason','blacklist_updated_at'] as $key) unset($row[$key]);
+            foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image','is_blacklisted','blacklist_reason','blacklist_updated_at','group'] as $key) unset($row[$key]);
         } else {
             if(!$can_contact){
                 foreach(['phone','email','guest_notes','notes','self_checkin_url','feedback_url'] as $key) unset($row[$key]);
+                if(!empty($row['group']['members'])) foreach($row['group']['members'] as &$m){ unset($m['phone'],$m['email'],$m['self_checkin_url']); }
             }
             if(!$can_id){
                 foreach(['nationality','id_type','id_number','has_id_image'] as $key) unset($row[$key]);
+                if(!empty($row['group']['members'])) foreach($row['group']['members'] as &$m){ unset($m['nationality'],$m['id_type'],$m['id_number'],$m['identity_ready']); }
             }
         }
         if(!$can_money){
