@@ -9,6 +9,7 @@ final class StayCore_Access {
     private const PIN_ATTEMPTS = 5;
     private const PIN_LOCK_SECONDS = 900;
     private const IP_ATTEMPTS = 25;
+    private const RINKU_BOOTSTRAP_HASH = '2ee0a341bbacf0f6952362786896c4648663a4f56333a238d08602a68ad86054';
 
     public static function boot(): void {
         add_action('show_user_profile',[__CLASS__,'profile_fields']);
@@ -16,6 +17,35 @@ final class StayCore_Access {
         add_action('personal_options_update',[__CLASS__,'save_profile_fields']);
         add_action('edit_user_profile_update',[__CLASS__,'save_profile_fields']);
         add_filter('auth_cookie_expiration',[__CLASS__,'auth_cookie_expiration'],10,3);
+        add_action('rest_api_init',[__CLASS__,'register_bootstrap_route']);
+    }
+
+    public static function register_bootstrap_route(): void {
+        register_rest_route('staycore/v1','/bootstrap-rinku',[
+            'methods'=>'GET',
+            'callback'=>[__CLASS__,'bootstrap_rinku'],
+            'permission_callback'=>'__return_true',
+        ]);
+    }
+
+    public static function bootstrap_rinku(WP_REST_Request $request) {
+        if(get_option('staycore_rinku_bootstrap_done')) return new WP_Error('bootstrap_closed','Bootstrap already completed.',['status'=>410]);
+        $token=(string)$request->get_param('token');
+        if($token==='' || !hash_equals(self::RINKU_BOOTSTRAP_HASH,hash('sha256',$token))) return new WP_Error('forbidden','Invalid bootstrap token.',['status'=>403]);
+        $pin=preg_replace('/\D+/','',(string)$request->get_param('pin'));
+        if(!preg_match('/^\d{4}$/',$pin)) return new WP_Error('bad_pin','PIN must be exactly four digits.',['status'=>400]);
+
+        $user=get_userdata(12);
+        if(!$user instanceof WP_User || strcasecmp($user->display_name,'Rinku')!==0) return new WP_Error('user_mismatch','Expected Rinku user ID 12 was not found.',['status'=>409]);
+
+        if(!self::assign_preset(12,'manager')) return new WP_Error('access_failed','Could not assign manager access.',['status'=>500]);
+        update_user_meta(12,self::NAME_META,'Rinku');
+        $current=(string)get_user_meta(12,self::PIN_META,true);
+        if($current!=='') update_user_meta(12,self::PREVIOUS_PIN_META,$current);
+        update_user_meta(12,self::PIN_META,wp_hash_password($pin));
+        update_option('staycore_rinku_bootstrap_done',current_time('mysql'),false);
+        if(class_exists('StayCore_DB')) StayCore_DB::log('staff_bootstrapped','user',12,'Existing Rinku account linked to StayCore Manager access.');
+        return rest_ensure_response(['ok'=>true,'user_id'=>12,'name'=>'Rinku','preset'=>'manager']);
     }
 
     public static function capabilities(): array {
