@@ -311,12 +311,8 @@ final class StayCore_REST {
         global $wpdb; $t=StayCore_DB::tables();
         $candidates=[];
         $phone=sanitize_text_field($phone); $email=sanitize_email($email); $id_number=trim($id_number);
-        if($phone!==''){
-            $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['guests']} WHERE phone=%s ORDER BY id DESC LIMIT 1",$phone),ARRAY_A);
-            if($row) $candidates[(int)$row['id']]=$row;
-        }
-        if($email!==''){
-            $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['guests']} WHERE email=%s ORDER BY id DESC LIMIT 1",$email),ARRAY_A);
+        if($phone!=='' || $email!==''){
+            $row=self::find_guest_row($phone,$email);
             if($row) $candidates[(int)$row['id']]=$row;
         }
         if($id_number!==''){
@@ -466,6 +462,9 @@ final class StayCore_REST {
         $overdue=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status='checked_in' AND check_out<%s ORDER BY check_out",current_time('mysql')),ARRAY_A);
         foreach($overdue as $x) $add_attention((int)$x['id'],'overdue','Checkout overdue');
 
+        $active_guests=$wpdb->get_results("SELECT id,guest_id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in')",ARRAY_A);
+        foreach($active_guests as $x) if(self::is_guest_blacklisted((int)$x['guest_id'])) $add_attention((int)$x['id'],'blacklist','Blacklisted guest on active booking');
+
         $unpaid=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s AND total>0",$end,$start),ARRAY_A);
         foreach($unpaid as $x){
             $ps=self::payment_summary((int)$x['id']);
@@ -491,12 +490,12 @@ final class StayCore_REST {
 
         $attention=array_values($attention);
         usort($attention,static function(array $a,array $b): int {
-            $weight=['service_recovery'=>0,'overdue'=>1,'payment'=>2,'contact'=>3];
+            $weight=['blacklist'=>0,'service_recovery'=>1,'overdue'=>2,'payment'=>3,'contact'=>4];
             $aw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$a['issues']??[]));
             $bw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$b['issues']??[]));
             return $aw<=>$bw ?: ((int)$a['reservation_id']<=> (int)$b['reservation_id']);
         });
-        $breakdown=['payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
+        $breakdown=['blacklist'=>0,'payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
         foreach($attention as $item) foreach($item['issues'] as $issue) if(isset($breakdown[$issue['type']])) $breakdown[$issue['type']]++;
 
         $out=[
@@ -557,6 +556,10 @@ final class StayCore_REST {
         foreach($rows as &$row){
             $row['assignments']=self::assignments((int)$row['id']);
             if(self::can_payments()) $row['payment']=self::payment_summary((int)$row['id']);
+            $blacklist=self::guest_blacklist((int)$row['guest_id']);
+            $row['is_blacklisted']=$blacklist['active'];
+            $row['blacklist_reason']=$blacklist['reason'];
+            $row['blacklist_updated_at']=$blacklist['updated_at'];
             $row=self::redact_reservation_for_current_user($row);
         }
         return rest_ensure_response($rows);
@@ -654,7 +657,7 @@ final class StayCore_REST {
         if(($adults+$children)>$capacity) return new WP_Error('capacity_exceeded','Selected units allow a maximum of '.$capacity.' guests.',['status'=>400]);
         $guest=['first_name'=>sanitize_text_field($p['first_name']??$existing['first_name']),'last_name'=>sanitize_text_field($p['last_name']??$existing['last_name']),'phone'=>sanitize_text_field($p['phone']??$existing['phone']),'email'=>sanitize_email($p['email']??$existing['email']),'nationality'=>sanitize_text_field($p['nationality']??$existing['nationality']),'id_type'=>sanitize_text_field($p['id_type']??$existing['id_type']),'id_number'=>sanitize_text_field($p['id_number']??$existing['id_number']),'notes'=>sanitize_textarea_field($p['guest_notes']??$existing['guest_notes']),'updated_at'=>current_time('mysql')];
         $wpdb->update($t['guests'],$guest,['id'=>(int)$existing['guest_id']]);
-        $data=['unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??$existing['source']),'external_ref'=>sanitize_text_field($p['external_ref']??$existing['external_ref']),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>sanitize_key($p['status']??$existing['status']),'total'=>(float)($p['total']??$existing['total']),'notes'=>sanitize_textarea_field($p['notes']??$existing['notes']),'updated_at'=>current_time('mysql')];
+        $data=['unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??$existing['source']),'external_ref'=>sanitize_text_field($p['external_ref']??$existing['external_ref']),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>$existing['status'],'total'=>(float)($p['total']??$existing['total']),'notes'=>sanitize_textarea_field($p['notes']??$existing['notes']),'updated_at'=>current_time('mysql')];
         $wpdb->update($t['reservations'],$data,['id'=>$id]);
         if(isset($p['unit_ids'])){ $wpdb->delete($t['reservation_units'],['reservation_id'=>$id]); foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>current_time('mysql')]); }
         StayCore_DB::log('reservation_updated','reservation',$id,'Reservation details updated.',['unit_ids'=>$unit_ids]); StayCore_Integrations::emit('reservation_updated',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
