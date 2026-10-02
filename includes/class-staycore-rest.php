@@ -1168,6 +1168,16 @@ final class StayCore_REST {
             }
             StayCore_DB::log('housekeeping_required','reservation',$id,'Checkout completed; assigned room/bed marked for cleaning.');
         }
+        $group=self::group_manifest($id);
+        if(!empty($group['is_group'])){
+            if($status==='checked_out'){
+                $wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status=CASE WHEN status='checked_in' THEN 'checked_out' ELSE 'no_show' END,updated_at=%s WHERE reservation_id=%d AND status IN ('pending','prechecked','checked_in')",$now,$id));
+            } elseif($status==='cancelled'){
+                $wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status='cancelled',updated_at=%s WHERE reservation_id=%d AND status NOT IN ('checked_out')",$now,$id));
+            } elseif($status==='no_show'){
+                $wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status='no_show',updated_at=%s WHERE reservation_id=%d AND status NOT IN ('checked_out')",$now,$id));
+            }
+        }
         StayCore_DB::log('status_changed','reservation',$id,'Reservation status changed to '.$status.'.'); StayCore_Integrations::emit('reservation_status_changed',['id'=>$id,'status'=>$status]);
         return rest_ensure_response(self::reservation_row($id));
     }
