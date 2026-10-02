@@ -56,7 +56,10 @@ final class StayCore_Admin {
         echo '<main id="sc-view"><div class="staycore-loading">Loading…</div></main>';
         echo '<nav class="staycore-tabs"><button data-tab="rooms" class="active"><span class="dashicons dashicons-building"></span><span>Rooms</span></button>';
         if($can_reservations){
-            echo '<button data-tab="bookings"><span class="dashicons dashicons-clipboard"></span><span>Bookings</span></button><button data-tab="calendar"><span class="dashicons dashicons-calendar-alt"></span><span>Calendar</span></button><button data-tab="more"><span class="dashicons dashicons-menu"></span><span>More</span></button>';
+            echo '<button data-tab="bookings"><span class="dashicons dashicons-clipboard"></span><span>Bookings</span></button><button data-tab="calendar"><span class="dashicons dashicons-calendar-alt"></span><span>Calendar</span></button>';
+        }
+        if($can_reservations || $can_payments || StayCore_Access::can('staycore_view_reports') || StayCore_Access::can('staycore_view_activity') || $can_manage){
+            echo '<button data-tab="more"><span class="dashicons dashicons-menu"></span><span>More</span></button>';
         }
         echo '</nav><dialog id="sc-dialog"></dialog></div></div>';
     }
