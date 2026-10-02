@@ -687,6 +687,16 @@ final class StayCore_REST {
         }
 
         if(self::can_reservations()){
+            $group_until=gmdate('Y-m-d',strtotime($today.' +1 day')).' 23:59:59';
+            $group_ids=$wpdb->get_col($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE status IN ('confirmed','checked_in') AND check_in<=%s AND check_out>%s",$group_until,$start));
+            foreach($group_ids as $gid){
+                $g=self::group_manifest((int)$gid);
+                if(empty($g['is_group'])) continue;
+                $unnamed=max(0,(int)$g['group_size']-(int)$g['named_count']);
+                $id_pending=max(0,(int)$g['group_size']-(int)$g['identity_ready_count']);
+                if($unnamed>0) $add_attention((int)$gid,'group_roster',$unnamed.' group guest'.($unnamed===1?'':'s').' still unnamed',['count'=>$unnamed]);
+                if($id_pending>0) $add_attention((int)$gid,'group_id',$id_pending.' group ID'.($id_pending===1?'':'s').' pending',['count'=>$id_pending]);
+            }
             $missing=$wpdb->get_results($wpdb->prepare("SELECT r.id FROM {$t['reservations']} r JOIN {$t['guests']} g ON g.id=r.guest_id WHERE r.status IN ('confirmed','checked_in') AND r.check_in<=%s AND r.check_out>%s AND (g.phone IS NULL OR g.phone='')",$end,$start),ARRAY_A);
             foreach($missing as $x) $add_attention((int)$x['id'],'contact','Guest phone missing');
 
@@ -705,12 +715,12 @@ final class StayCore_REST {
 
         $attention=array_values($attention);
         usort($attention,static function(array $a,array $b): int {
-            $weight=['blacklist'=>0,'service_recovery'=>1,'overdue'=>2,'payment'=>3,'contact'=>4];
+            $weight=['blacklist'=>0,'service_recovery'=>1,'overdue'=>2,'group_roster'=>3,'group_id'=>4,'payment'=>5,'contact'=>6];
             $aw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$a['issues']??[]));
             $bw=min(array_map(static fn($i)=>$weight[$i['type']]??9,$b['issues']??[]));
             return $aw<=>$bw ?: ((int)$a['reservation_id']<=> (int)$b['reservation_id']);
         });
-        $breakdown=['blacklist'=>0,'payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
+        $breakdown=['blacklist'=>0,'group_roster'=>0,'group_id'=>0,'payment'=>0,'overdue'=>0,'service_recovery'=>0,'contact'=>0];
         foreach($attention as $item) foreach($item['issues'] as $issue) if(isset($breakdown[$issue['type']])) $breakdown[$issue['type']]++;
 
         $out=[
