@@ -130,3 +130,10 @@ body.staycore-staff-portal #staycore-app{max-width:1080px}
   .sc-error-summary{position:relative;margin-top:2px}
   .sc-inline-error{font-size:13px}
 }
+
+/* v0.6.9 Safari dialog fallback */
+html.sc-dialog-lock{overflow:hidden}
+dialog.sc-dialog-fallback[open]{display:block!important;position:fixed!important;z-index:9999!important;left:50%!important;top:4vh!important;transform:translateX(-50%);max-height:92vh!important;overflow:auto!important;box-shadow:0 0 0 100vmax rgba(0,0,0,.55),0 30px 80px rgba(0,0,0,.28)}
+@media(max-width:782px){
+  dialog.sc-dialog-fallback[open]{inset:0!important;left:0!important;top:0!important;transform:none!important;width:100vw!important;height:100vh!important;height:100dvh!important;max-height:none!important}
+}

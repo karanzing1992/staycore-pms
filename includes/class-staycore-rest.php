@@ -56,6 +56,11 @@ final class StayCore_REST {
                 'simplified_form_labels'=>true,
                 'non_gated_review_flow'=>true,
                 'strict_staff_pin_validation'=>true,
+                'ios_safari_photo_normalization'=>true,
+                'ocr_optional_for_id_upload'=>true,
+                'ios_whatsapp_same_tab'=>true,
+                'legacy_dialog_fallback'=>true,
+                'exact_self_checkin_time_gate'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -155,6 +160,14 @@ final class StayCore_REST {
             foreach(['total','currency','payment','payments'] as $key) unset($row[$key]);
         }
         return $row;
+    }
+
+    private static function local_datetime(string $value): ?DateTimeImmutable {
+        try {
+            return new DateTimeImmutable($value, wp_timezone());
+        } catch (Exception $e) {
+            return null;
+        }
     }
 
     private static function public_link_expired(array $row,string $kind): bool {
@@ -768,7 +781,7 @@ final class StayCore_REST {
             if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
             if(!empty($row['is_blacklisted'])) return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be checked in.'.(!empty($row['blacklist_reason'])?' Reason: '.$row['blacklist_reason']:''),['status'=>409,'reason'=>$row['blacklist_reason']??'']);
             $missing=self::checkin_requirements($row);
-            if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified camera ID photo before check-in.',['status'=>409,'missing'=>$missing]);
+            if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified ID photo before check-in.',['status'=>409,'missing'=>$missing]);
             foreach($assign as $a) if(($a['status']??'available')!=='available' || ($a['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',$a['name'].' is not ready. Housekeeping must mark it clean before check-in.',['status'=>409]);
         }
         if($status==='checked_out'){
@@ -865,7 +878,7 @@ final class StayCore_REST {
             'check_in'=>$row['check_in'],'check_out'=>$row['check_out'],'assignment'=>implode(', ',array_column($row['assignments'],'name')),
             'nationality'=>(string)$row['nationality'],'id_type'=>(string)$row['id_type'],'id_number'=>(string)$row['id_number'],
             'missing'=>array_values(array_unique($missing)),'precheckin'=>!empty($meta['precheckin_at']),'status'=>$row['status'],
-            'can_checkin_now'=>substr($row['check_in'],0,10)<=current_time('Y-m-d')
+            'can_checkin_now'=>($check_in_at=self::local_datetime((string)$row['check_in'])) ? $check_in_at<=current_datetime() : false
         ]);
     }
 
@@ -922,9 +935,11 @@ final class StayCore_REST {
         self::merge_reservation_meta($id,['precheckin_at'=>current_time('mysql')]);
         StayCore_DB::log('guest_prechecked','reservation',$id,'Guest completed self check-in details.');
 
-        $today=current_time('Y-m-d');
-        if(substr($row['check_in'],0,10)>$today) return rest_ensure_response(['state'=>'prechecked']);
-        if(substr($row['check_out'],0,10)<$today) return new WP_Error('booking_closed','This booking has already ended.',['status'=>409]);
+        $now=current_datetime();
+        $check_in_at=self::local_datetime((string)$row['check_in']);
+        $check_out_at=self::local_datetime((string)$row['check_out']);
+        if($check_in_at && $check_in_at>$now) return rest_ensure_response(['state'=>'prechecked']);
+        if($check_out_at && $check_out_at<$now) return new WP_Error('booking_closed','This booking has already ended.',['status'=>409]);
 
         foreach(self::assignments($id) as $unit){
             if(($unit['status']??'available')!=='available' || ($unit['housekeeping_status']??'clean')!=='clean'){
