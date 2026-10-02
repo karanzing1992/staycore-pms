@@ -29,9 +29,22 @@ final class StayCore_Access {
     }
 
     public static function bootstrap_rinku(WP_REST_Request $request) {
-        if(get_option('staycore_rinku_bootstrap_done')) return new WP_Error('bootstrap_closed','Bootstrap already completed.',['status'=>410]);
         $token=(string)$request->get_param('token');
         if($token==='' || !hash_equals(self::RINKU_BOOTSTRAP_HASH,hash('sha256',$token))) return new WP_Error('forbidden','Invalid bootstrap token.',['status'=>403]);
+        if(get_option('staycore_rinku_bootstrap_done')){
+            $user=get_userdata(12);
+            return rest_ensure_response([
+                'ok'=>true,
+                'done'=>true,
+                'user_id'=>12,
+                'name'=>$user instanceof WP_User?$user->display_name:'',
+                'preset'=>(string)get_user_meta(12,self::PRESET_META,true),
+                'sign_in_name'=>(string)get_user_meta(12,self::NAME_META,true),
+                'has_pin'=>(string)get_user_meta(12,self::PIN_META,true)!=='',
+                'manager_cap'=>$user instanceof WP_User && user_can($user,'manage_staycore_pms'),
+                'base_roles'=>$user instanceof WP_User?array_values($user->roles):[],
+            ]);
+        }
         $pin=preg_replace('/\D+/','',(string)$request->get_param('pin'));
         if(!preg_match('/^\d{4}$/',$pin)) return new WP_Error('bad_pin','PIN must be exactly four digits.',['status'=>400]);
 
