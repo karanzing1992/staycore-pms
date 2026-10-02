@@ -149,7 +149,7 @@ final class StayCore_Access {
 
     public static function set_staff_name(int $user_id,string $name) {
         $name=trim(sanitize_text_field($name));
-        if($name==='' || mb_strlen($name)>80) return new WP_Error('bad_staff_name','Enter a staff sign-in name.');
+        if($name==='' || strlen($name)>80) return new WP_Error('bad_staff_name','Enter a staff sign-in name.');
         if(!self::name_available($name,$user_id)) return new WP_Error('staff_name_taken','That staff sign-in name is already in use.');
         update_user_meta($user_id,self::NAME_META,$name);
         if(class_exists('StayCore_DB')) StayCore_DB::log('staff_name_changed','user',$user_id,'Staff sign-in name changed.');
@@ -242,6 +242,8 @@ final class StayCore_Access {
     }
 
     public static function can(string $cap): bool {
+        $user_id=get_current_user_id();
+        if($user_id && self::preset($user_id)!=='' && !self::is_active($user_id)) return false;
         return current_user_can($cap) || current_user_can('manage_options');
     }
 
