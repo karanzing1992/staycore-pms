@@ -1,2 +1,2 @@
-force-deploy: 0.6.9
-reason: safari-selfcheckin-qa
+force-deploy: 0.6.10
+reason: safari-dialog-recursion-hotfix
