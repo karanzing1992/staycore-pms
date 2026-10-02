@@ -194,7 +194,7 @@ final class StayCore_REST {
              WHERE rg.reservation_id=%d ORDER BY CASE WHEN rg.role='lead' THEN 0 ELSE 1 END,rg.id",
             $reservation_id
         ),ARRAY_A);
-        $ready=0; $checked=0; $named=0;
+        $ready=0; $checked=0; $arrived=0; $checked_out=0; $no_show=0; $named=0;
         foreach($rows as &$m){
             $m['guest_id']=(int)($m['guest_id']??0);
             $m['unit_id']=(int)($m['unit_id']??0);
@@ -202,7 +202,11 @@ final class StayCore_REST {
             if($m['name']!=='') $named++;
             $m['identity_ready']=self::group_member_identity_ready($m);
             if($m['identity_ready']) $ready++;
-            if(($m['status']??'')==='checked_in') $checked++;
+            $ms=(string)($m['status']??'pending');
+            if($ms==='checked_in') $checked++;
+            if(in_array($ms,['checked_in','checked_out'],true)) $arrived++;
+            if($ms==='checked_out') $checked_out++;
+            if($ms==='no_show') $no_show++;
             $m['self_checkin_url']=$m['guest_id']?self::group_member_self_checkin_url($reservation,$m):'';
         }
         $size=max(2,(int)($meta['group_size']??count($rows)?:2));
@@ -213,6 +217,9 @@ final class StayCore_REST {
             'named_count'=>$named,
             'identity_ready_count'=>$ready,
             'checked_in_count'=>$checked,
+            'arrived_count'=>$arrived,
+            'checked_out_count'=>$checked_out,
+            'no_show_count'=>$no_show,
             'members'=>$rows,
         ];
     }
