@@ -111,3 +111,22 @@ body.staycore-staff-portal #staycore-app{max-width:1080px}
 .sc-id-confirm input{width:18px!important;height:18px!important;min-height:0!important;margin-top:1px}
 @keyframes sc-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.sc-spinner{animation-duration:1.5s}}
+
+/* v0.6.7 form validation + low-learning-curve labels */
+.sc-error-summary{padding:12px 13px;border:2px solid #b42318;border-radius:13px;background:#fff1f0;color:#7a271a}
+.sc-error-summary[hidden]{display:none!important}
+.sc-error-summary strong{display:block;font-size:13px;margin-bottom:5px}
+.sc-error-summary ul{margin:0;padding-left:20px;display:grid;gap:3px}
+.sc-error-summary a{color:#7a271a;text-decoration:underline;font-size:12px;font-weight:650}
+.sc-inline-error{display:flex;gap:5px;align-items:flex-start;color:#b42318;font-size:12px;line-height:1.35;font-weight:650;margin-top:1px}
+.sc-inline-error::before{content:"!";display:grid;place-items:center;flex:0 0 16px;width:16px;height:16px;border-radius:50%;background:#b42318;color:#fff;font-size:10px;font-weight:800;margin-top:0}
+.sc-form label.sc-field-error>input,.sc-form label.sc-field-error>select,.sc-form label.sc-field-error>textarea{border:2px solid #b42318!important;background:#fff8f7!important;box-shadow:0 0 0 3px rgba(180,35,24,.08)}
+.sc-form label.sc-field-valid>input:not([aria-invalid="true"]),.sc-form label.sc-field-valid>select:not([aria-invalid="true"]){border-color:#6f9b78}
+.sc-manual-toggle.sc-field-error{padding:9px;border:2px solid #b42318;border-radius:11px;background:#fff8f7}
+.sc-optional-label{font-size:10px;font-weight:500;color:var(--sc-muted);background:var(--sc-soft);border-radius:999px;padding:2px 6px;margin-left:4px}
+.sc-form label{color:#5f6059}
+.sc-form label:has(input[aria-invalid="true"]),.sc-form label:has(select[aria-invalid="true"]),.sc-form label:has(textarea[aria-invalid="true"]){color:#7a271a}
+@media(max-width:782px){
+  .sc-error-summary{position:relative;margin-top:2px}
+  .sc-inline-error{font-size:13px}
+}

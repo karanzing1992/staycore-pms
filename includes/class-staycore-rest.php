@@ -51,6 +51,9 @@ final class StayCore_REST {
                 'booking_id_photo_upload'=>true,
                 'processing_loaders'=>true,
                 'whatsapp_no_blank_tab_android'=>true,
+                'field_validation_v2'=>true,
+                'submit_error_summary'=>true,
+                'simplified_form_labels'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
