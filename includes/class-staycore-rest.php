@@ -770,6 +770,8 @@ final class StayCore_REST {
         ),ARRAY_A);
         foreach($rows as &$row){
             $row['assignments']=self::assignments((int)$row['id']);
+            $row['group']=self::group_manifest((int)$row['id'],$row);
+            $row['is_group']=!empty($row['group']['is_group']);
             if(self::can_payments()) $row['payment']=self::payment_summary((int)$row['id']);
             $blacklist=self::guest_blacklist((int)$row['guest_id']);
             $row['is_blacklisted']=$blacklist['active'];
