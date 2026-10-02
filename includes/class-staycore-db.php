@@ -163,20 +163,7 @@ final class StayCore_DB {
     }
 
     private static function ensure_roles(): void {
-        $caps = ['read'=>true,'staycore_view_pms'=>true,'manage_staycore_pms'=>true,'staycore_manage_reservations'=>true,'staycore_manage_payments'=>true,'staycore_manage_housekeeping'=>true,'staycore_view_reports'=>true];
-        $manager = get_role('staycore_manager') ?: add_role('staycore_manager','StayCore Manager',$caps);
-        if ($manager) foreach ($caps as $cap=>$grant) $manager->add_cap($cap,$grant);
-
-        $front_caps = ['read'=>true,'staycore_view_pms'=>true,'staycore_manage_reservations'=>true,'staycore_manage_payments'=>true,'staycore_manage_housekeeping'=>true];
-        $front = get_role('staycore_front_desk') ?: add_role('staycore_front_desk','StayCore Front Desk',$front_caps);
-        if ($front) foreach ($front_caps as $cap=>$grant) $front->add_cap($cap,$grant);
-
-        $house_caps = ['read'=>true,'staycore_view_pms'=>true,'staycore_manage_housekeeping'=>true];
-        $house = get_role('staycore_housekeeping') ?: add_role('staycore_housekeeping','StayCore Housekeeping',$house_caps);
-        if ($house) foreach ($house_caps as $cap=>$grant) $house->add_cap($cap,$grant);
-
-        $admin = get_role('administrator');
-        if ($admin) foreach ($caps as $cap=>$grant) $admin->add_cap($cap,$grant);
+        if (class_exists('StayCore_Access')) StayCore_Access::ensure_roles();
     }
 
     private static function migrate_reservation_units(): void {
