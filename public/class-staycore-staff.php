@@ -10,7 +10,7 @@ final class StayCore_Staff {
     }
 
     private static function is_staff_user(): bool {
-        return is_user_logged_in() && (current_user_can('staycore_view_pms') || current_user_can('manage_options'));
+        return is_user_logged_in() && StayCore_Access::can('staycore_view_pms');
     }
 
     private static function request_path(): string {
