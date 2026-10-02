@@ -3,7 +3,9 @@ if (!defined('ABSPATH')) exit;
 
 final class StayCore_Access {
     private const PIN_META = 'staycore_staff_pin_hash';
+    private const PREVIOUS_PIN_META = 'staycore_staff_previous_pin_hash';
     private const NAME_META = 'staycore_staff_name';
+    private const PRESET_META = 'staycore_staff_preset';
     private const PIN_ATTEMPTS = 5;
     private const PIN_LOCK_SECONDS = 900;
     private const IP_ATTEMPTS = 25;
@@ -40,14 +42,15 @@ final class StayCore_Access {
         return array_fill_keys(array_values(array_unique(array_merge(['read'],$caps))), true);
     }
 
-    public static function ensure_roles(): void {
-        $roles = [
-            'staycore_owner' => [
-                'label' => 'StayCore Owner',
+
+    public static function presets(): array {
+        return [
+            'owner' => [
+                'label' => 'Owner',
                 'caps' => array_values(array_diff(self::capabilities(),['read'])),
             ],
-            'staycore_manager' => [
-                'label' => 'StayCore Manager',
+            'manager' => [
+                'label' => 'Manager',
                 'caps' => [
                     'staycore_view_pms','manage_staycore_pms','staycore_manage_reservations',
                     'staycore_view_guests','staycore_view_guest_contact','staycore_view_guest_id','staycore_upload_guest_id',
@@ -55,38 +58,69 @@ final class StayCore_Access {
                     'staycore_view_reports','staycore_view_activity',
                 ],
             ],
-            'staycore_front_desk' => [
-                'label' => 'StayCore Front Desk',
+            'front_desk' => [
+                'label' => 'Front Desk',
                 'caps' => [
                     'staycore_view_pms','staycore_manage_reservations',
                     'staycore_view_guests','staycore_view_guest_contact','staycore_view_guest_id','staycore_upload_guest_id',
                     'staycore_manage_payments','staycore_checkout','staycore_view_activity',
                 ],
             ],
-            'staycore_housekeeping' => [
-                'label' => 'StayCore Housekeeping',
+            'housekeeping' => [
+                'label' => 'Housekeeping',
                 'caps' => ['staycore_view_pms','staycore_manage_housekeeping'],
             ],
-            'staycore_accounts' => [
-                'label' => 'StayCore Accounts',
+            'accounts' => [
+                'label' => 'Accounts',
                 'caps' => ['staycore_view_pms','staycore_view_guests','staycore_manage_payments','staycore_view_reports','staycore_view_activity'],
             ],
-            'staycore_read_only' => [
-                'label' => 'StayCore Read Only',
+            'read_only' => [
+                'label' => 'Read Only',
                 'caps' => ['staycore_view_pms','staycore_view_reports','staycore_view_activity'],
             ],
         ];
+    }
 
-        $all = self::capabilities();
-        foreach ($roles as $slug => $def) {
-            $role = get_role($slug) ?: add_role($slug,$def['label'],self::role_caps($def['caps']));
-            if (!$role) continue;
-            foreach ($all as $cap) $role->remove_cap($cap);
-            foreach (self::role_caps($def['caps']) as $cap => $grant) $role->add_cap($cap,$grant);
+    public static function assign_preset(int $user_id,string $preset): bool {
+        $presets=self::presets();
+        if(!isset($presets[$preset])) return false;
+        $user=get_userdata($user_id);
+        if(!$user instanceof WP_User) return false;
+
+        foreach(self::capabilities() as $cap){
+            if($cap!=='read') $user->remove_cap($cap);
+        }
+        foreach($presets[$preset]['caps'] as $cap) $user->add_cap($cap,true);
+        update_user_meta($user_id,self::PRESET_META,$preset);
+
+        if(class_exists('StayCore_DB')){
+            StayCore_DB::log('staff_access_changed','user',$user_id,'StayCore staff access changed.',['preset'=>$preset]);
+        }
+        return true;
+    }
+
+    public static function ensure_roles(): void {
+        $role_map=[
+            'staycore_owner'=>'owner',
+            'staycore_manager'=>'manager',
+            'staycore_front_desk'=>'front_desk',
+            'staycore_housekeeping'=>'housekeeping',
+            'staycore_accounts'=>'accounts',
+            'staycore_read_only'=>'read_only',
+        ];
+        $presets=self::presets();
+        $all=self::capabilities();
+
+        foreach($role_map as $slug=>$preset){
+            $def=$presets[$preset];
+            $role=get_role($slug) ?: add_role($slug,'StayCore '.$def['label'],self::role_caps($def['caps']));
+            if(!$role) continue;
+            foreach($all as $cap) $role->remove_cap($cap);
+            foreach(self::role_caps($def['caps']) as $cap=>$grant) $role->add_cap($cap,$grant);
         }
 
-        $admin = get_role('administrator');
-        if ($admin) foreach ($all as $cap) $admin->add_cap($cap,true);
+        $admin=get_role('administrator');
+        if($admin) foreach($all as $cap) $admin->add_cap($cap,true);
     }
 
     public static function can(string $cap): bool {
@@ -103,14 +137,22 @@ final class StayCore_Access {
 
     public static function profile_fields(WP_User $user): void {
         if (!self::can('staycore_manage_staff')) return;
-        $name = (string)get_user_meta($user->ID,self::NAME_META,true);
-        if ($name === '') $name = $user->display_name;
-        $has_pin = (string)get_user_meta($user->ID,self::PIN_META,true) !== '';
+        $name=(string)get_user_meta($user->ID,self::NAME_META,true);
+        if($name==='') $name=$user->display_name;
+        $has_pin=(string)get_user_meta($user->ID,self::PIN_META,true)!=='';
+        $has_previous=(string)get_user_meta($user->ID,self::PREVIOUS_PIN_META,true)!=='';
+        $preset=(string)get_user_meta($user->ID,self::PRESET_META,true);
+        $presets=self::presets();
+
         wp_nonce_field('staycore_staff_security_'.$user->ID,'staycore_staff_security_nonce');
         echo '<h2>StayCore staff access</h2><table class="form-table" role="presentation"><tbody>';
-        echo '<tr><th><label for="staycore_staff_name">Sign-in name</label></th><td><input type="text" class="regular-text" id="staycore_staff_name" name="staycore_staff_name" value="'.esc_attr($name).'" autocomplete="off"><p class="description">Use a short, unique staff name. Employees sign in with this name and a 4-digit PIN.</p></td></tr>';
-        echo '<tr><th><label for="staycore_staff_pin">4-digit PIN</label></th><td><input type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" class="regular-text" id="staycore_staff_pin" name="staycore_staff_pin" value="" autocomplete="new-password"><p class="description">'.($has_pin?'A PIN is already set. Enter four digits only to replace it.':'No PIN is set yet. Enter exactly four digits to enable staff sign-in.').'</p></td></tr>';
-        echo '</tbody></table>';
+        echo '<tr><th><label for="staycore_staff_preset">PMS access</label></th><td><select id="staycore_staff_preset" name="staycore_staff_preset"><option value="">No StayCore access</option>';
+        foreach($presets as $key=>$def) echo '<option value="'.esc_attr($key).'" '.selected($preset,$key,false).'>'.esc_html($def['label']).'</option>';
+        echo '</select><p class="description">Adds PMS permissions to this existing WordPress user without changing their normal WordPress/POS role.</p></td></tr>';
+        echo '<tr><th><label for="staycore_staff_name">Sign-in name</label></th><td><input type="text" class="regular-text" id="staycore_staff_name" name="staycore_staff_name" value="'.esc_attr($name).'" autocomplete="off"><p class="description">Employees sign in with this name and a 4-digit PIN.</p></td></tr>';
+        echo '<tr><th><label for="staycore_staff_pin">4-digit PIN</label></th><td><input type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" class="regular-text" id="staycore_staff_pin" name="staycore_staff_pin" value="" autocomplete="new-password"><p class="description">'.($has_pin?'A PIN is set. Enter four digits to replace it.':'No PIN is set yet. Enter exactly four digits to enable staff sign-in.').'</p>';
+        if($has_previous) echo '<label style="display:block;margin-top:10px"><input type="checkbox" name="staycore_revert_pin" value="1"> Revert to previous PIN</label><p class="description">Restores the immediately previous PIN without revealing it.</p>';
+        echo '</td></tr></tbody></table>';
     }
 
     public static function save_profile_fields(int $user_id): void {
@@ -130,12 +172,34 @@ final class StayCore_Access {
             if (!$dupes) update_user_meta($user_id,self::NAME_META,$name);
         }
 
-        $pin = preg_replace('/\D+/','',(string)wp_unslash($_POST['staycore_staff_pin'] ?? ''));
-        if ($pin !== '') {
-            if (preg_match('/^\d{4}$/',$pin)) {
-                update_user_meta($user_id,self::PIN_META,wp_hash_password($pin));
-                if (class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_changed','user',$user_id,'Staff PIN changed.');
+        $preset=sanitize_key((string)wp_unslash($_POST['staycore_staff_preset'] ?? ''));
+        if($preset!==''){
+            self::assign_preset($user_id,$preset);
+        } else {
+            $user=get_userdata($user_id);
+            if($user instanceof WP_User){
+                foreach(self::capabilities() as $cap) if($cap!=='read') $user->remove_cap($cap);
             }
+            delete_user_meta($user_id,self::PRESET_META);
+        }
+
+        if(!empty($_POST['staycore_revert_pin'])){
+            $current=(string)get_user_meta($user_id,self::PIN_META,true);
+            $previous=(string)get_user_meta($user_id,self::PREVIOUS_PIN_META,true);
+            if($previous!==''){
+                update_user_meta($user_id,self::PIN_META,$previous);
+                if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
+                if(class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_reverted','user',$user_id,'Staff PIN reverted to previous value.');
+            }
+            return;
+        }
+
+        $pin=preg_replace('/\D+/','',(string)wp_unslash($_POST['staycore_staff_pin'] ?? ''));
+        if($pin!=='' && preg_match('/^\d{4}$/',$pin)){
+            $current=(string)get_user_meta($user_id,self::PIN_META,true);
+            if($current!=='') update_user_meta($user_id,self::PREVIOUS_PIN_META,$current);
+            update_user_meta($user_id,self::PIN_META,wp_hash_password($pin));
+            if(class_exists('StayCore_DB')) StayCore_DB::log('staff_pin_changed','user',$user_id,'Staff PIN changed.');
         }
     }
 
