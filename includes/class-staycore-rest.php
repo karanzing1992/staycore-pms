@@ -21,11 +21,20 @@ final class StayCore_REST {
         }
         return $response;
     }
-    public static function can_view(): bool { return current_user_can('staycore_view_pms') || current_user_can('manage_options'); }
-    public static function can_reservations(): bool { return current_user_can('staycore_manage_reservations') || current_user_can('manage_options'); }
-    public static function can_payments(): bool { return current_user_can('staycore_manage_payments') || current_user_can('manage_options'); }
-    public static function can_housekeeping(): bool { return current_user_can('staycore_manage_housekeeping') || current_user_can('manage_options'); }
-    public static function can_manage(): bool { return current_user_can('manage_staycore_pms') || current_user_can('manage_options'); }
+    public static function can_view(): bool { return StayCore_Access::can('staycore_view_pms'); }
+    public static function can_reservations(): bool { return StayCore_Access::can('staycore_manage_reservations'); }
+    public static function can_guests(): bool { return StayCore_Access::can('staycore_view_guests'); }
+    public static function can_guest_contact(): bool { return StayCore_Access::can('staycore_view_guest_contact'); }
+    public static function can_guest_id(): bool { return StayCore_Access::can('staycore_view_guest_id'); }
+    public static function can_upload_guest_id(): bool { return StayCore_Access::can('staycore_upload_guest_id'); }
+    public static function can_payments(): bool { return StayCore_Access::can('staycore_manage_payments'); }
+    public static function can_checkout(): bool { return StayCore_Access::can('staycore_checkout'); }
+    public static function can_housekeeping(): bool { return StayCore_Access::can('staycore_manage_housekeeping'); }
+    public static function can_reports(): bool { return StayCore_Access::can('staycore_view_reports'); }
+    public static function can_activity(): bool { return StayCore_Access::can('staycore_view_activity'); }
+    public static function can_staff(): bool { return StayCore_Access::can('staycore_manage_staff'); }
+    public static function can_settings(): bool { return StayCore_Access::can('staycore_manage_settings'); }
+    public static function can_manage(): bool { return StayCore_Access::can('manage_staycore_pms'); }
 
     public static function routes(): void {
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -34,8 +43,8 @@ final class StayCore_REST {
             ['methods'=>'POST','callback'=>[__CLASS__,'create_unit'],'permission_callback'=>[__CLASS__,'can_manage']],
         ]);
         register_rest_route('staycore/v1','/housekeeping',['methods'=>'POST','callback'=>[__CLASS__,'set_housekeeping'],'permission_callback'=>[__CLASS__,'can_housekeeping']]);
-        register_rest_route('staycore/v1','/guest-lookup',['methods'=>'GET','callback'=>[__CLASS__,'guest_lookup'],'permission_callback'=>[__CLASS__,'can_reservations']]);
-        register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/id-image',['methods'=>'GET','callback'=>[__CLASS__,'guest_id_image'],'permission_callback'=>[__CLASS__,'can_reservations']]);
+        register_rest_route('staycore/v1','/guest-lookup',['methods'=>'GET','callback'=>[__CLASS__,'guest_lookup'],'permission_callback'=>[__CLASS__,'can_guests']]);
+        register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/id-image',['methods'=>'GET','callback'=>[__CLASS__,'guest_id_image'],'permission_callback'=>[__CLASS__,'can_guest_id']]);
         register_rest_route('staycore/v1','/self-checkin/(?P<id>\\d+)',[
             ['methods'=>'GET','callback'=>[__CLASS__,'self_checkin_get'],'permission_callback'=>'__return_true'],
             ['methods'=>'POST','callback'=>[__CLASS__,'self_checkin_post'],'permission_callback'=>'__return_true'],
@@ -58,8 +67,8 @@ final class StayCore_REST {
             ['methods'=>'GET','callback'=>[__CLASS__,'payments'],'permission_callback'=>[__CLASS__,'can_payments']],
             ['methods'=>'POST','callback'=>[__CLASS__,'add_payment'],'permission_callback'=>[__CLASS__,'can_payments']],
         ]);
-        register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_reservations']]);
-        register_rest_route('staycore/v1','/integrations',['methods'=>'GET','callback'=>fn()=>rest_ensure_response(StayCore_Integrations::all()),'permission_callback'=>[__CLASS__,'can_manage']]);
+        register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_activity']]);
+        register_rest_route('staycore/v1','/integrations',['methods'=>'GET','callback'=>fn()=>rest_ensure_response(StayCore_Integrations::all()),'permission_callback'=>[__CLASS__,'can_settings']]);
     }
 
     private static function payment_summary(int $reservation_id): array {
@@ -97,11 +106,21 @@ final class StayCore_REST {
     }
 
     private static function redact_reservation_for_current_user(array $row): array {
-        $can_guest=self::can_reservations();
+        $can_guest=self::can_guests();
+        $can_contact=self::can_guest_contact();
+        $can_id=self::can_guest_id();
         $can_money=self::can_payments();
+
         if(!$can_guest){
             $row['guest_name']='Occupied';
             foreach(['first_name','last_name','phone','email','nationality','id_type','id_number','guest_notes','notes','meta','external_ref','self_checkin_url','feedback_url','has_id_image'] as $key) unset($row[$key]);
+        } else {
+            if(!$can_contact){
+                foreach(['phone','email','guest_notes','notes','self_checkin_url','feedback_url'] as $key) unset($row[$key]);
+            }
+            if(!$can_id){
+                foreach(['nationality','id_type','id_number','has_id_image'] as $key) unset($row[$key]);
+            }
         }
         if(!$can_money){
             foreach(['total','currency','payment','payments'] as $key) unset($row[$key]);
@@ -426,7 +445,7 @@ final class StayCore_REST {
         $row=self::reservation_row(absint($request['id'])); if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
         global $wpdb; $t=StayCore_DB::tables();
         if(self::can_payments()) $row['payments']=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t['payments']} WHERE reservation_id=%d ORDER BY paid_at DESC,id DESC",(int)$row['id']),ARRAY_A);
-        if(self::can_reservations()) $row['activity']=$wpdb->get_results($wpdb->prepare("SELECT a.id,a.user_id,a.action,a.entity_type,a.entity_id,a.message,a.created_at,u.display_name user_name FROM {$t['activity']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.user_id WHERE a.entity_type='reservation' AND a.entity_id=%d ORDER BY a.id DESC LIMIT 30",(int)$row['id']),ARRAY_A);
+        if(self::can_activity()) $row['activity']=$wpdb->get_results($wpdb->prepare("SELECT a.id,a.user_id,a.action,a.entity_type,a.entity_id,a.message,a.created_at,u.display_name user_name FROM {$t['activity']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.user_id WHERE a.entity_type='reservation' AND a.entity_id=%d ORDER BY a.id DESC LIMIT 30",(int)$row['id']),ARRAY_A);
         return rest_ensure_response(self::redact_reservation_for_current_user($row));
     }
 
@@ -522,6 +541,7 @@ final class StayCore_REST {
             foreach($assign as $a) if(($a['status']??'available')!=='available' || ($a['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',$a['name'].' is not ready. Housekeeping must mark it clean before check-in.',['status'=>409]);
         }
         if($status==='checked_out'){
+            if(!self::can_checkout()) return new WP_Error('checkout_forbidden','Your role is not allowed to check guests out.',['status'=>403]);
             $payment=self::payment_summary($id);
             $balance=max(0,(float)($payment['balance']??0));
             $clear=(bool)apply_filters('staycore_pms_checkout_payment_clear',$balance<=0.009,$id,$payment);
@@ -568,16 +588,23 @@ final class StayCore_REST {
         if(!$guest) return rest_ensure_response(['found'=>false]);
         $stays=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE guest_id=%d",(int)$guest['id']));
         $last=$wpdb->get_row($wpdb->prepare("SELECT check_in,check_out,source FROM {$t['reservations']} WHERE guest_id=%d ORDER BY check_out DESC LIMIT 1",(int)$guest['id']),ARRAY_A);
-        return rest_ensure_response(['found'=>true,'guest'=>[
-            'id'=>(int)$guest['id'],'first_name'=>$guest['first_name'],'last_name'=>$guest['last_name'],'phone'=>$guest['phone'],'email'=>$guest['email'],
-            'nationality'=>$guest['nationality'],'id_type'=>$guest['id_type'],'id_number'=>$guest['id_number'],'has_id_image'=>!empty(self::guest_meta((int)$guest['id'])['id_image']['data']),'notes'=>$guest['notes'],'stay_count'=>$stays,'last_stay'=>$last,
-        ]]);
+        $data=[
+            'id'=>(int)$guest['id'],'first_name'=>$guest['first_name'],'last_name'=>$guest['last_name'],
+            'phone'=>$guest['phone'],'email'=>$guest['email'],'nationality'=>$guest['nationality'],
+            'id_type'=>$guest['id_type'],'id_number'=>$guest['id_number'],
+            'has_id_image'=>!empty(self::guest_meta((int)$guest['id'])['id_image']['data']),
+            'notes'=>$guest['notes'],'stay_count'=>$stays,'last_stay'=>$last,
+        ];
+        if(!self::can_guest_contact()) foreach(['phone','email','notes'] as $key) unset($data[$key]);
+        if(!self::can_guest_id()) foreach(['nationality','id_type','id_number','has_id_image'] as $key) unset($data[$key]);
+        return rest_ensure_response(['found'=>true,'guest'=>$data]);
     }
 
     public static function guest_id_image(WP_REST_Request $request) {
         $guest_id=absint($request['id']);
         $image=self::guest_meta($guest_id)['id_image']??null;
         if(!is_array($image)||empty($image['data'])||empty($image['mime'])) return new WP_Error('not_found','No ID image is stored for this guest.',['status'=>404]);
+        StayCore_DB::log('guest_id_viewed','guest',$guest_id,'Guest ID image viewed.');
         return rest_ensure_response(['mime'=>$image['mime'],'data'=>$image['data'],'updated_at'=>$image['updated_at']??null]);
     }
 
