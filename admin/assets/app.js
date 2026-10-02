@@ -13,7 +13,7 @@ const setProcess=(node,message,busy=true)=>{if(!node)return;node.innerHTML=(busy
 const fieldWrap=f=>f?.closest('label')||f?.parentElement;
 const fieldId=f=>{if(!f)return'';if(!f.id)f.id='sc-field-'+String(f.name||'field').replace(/[^a-z0-9_-]/gi,'-')+'-'+Math.random().toString(36).slice(2,7);return f.id};
 const clearFieldError=f=>{if(!f)return;const w=fieldWrap(f);w?.classList.remove('sc-field-error');f.removeAttribute('aria-invalid');const id=f.getAttribute('aria-describedby');if(id){document.getElementById(id)?.remove();f.removeAttribute('aria-describedby')}};
-const setFieldError=(f,msg)=>{if(!f||!msg)return;clearFieldError(f);const w=fieldWrap(f),id=fieldId(f)+'-error',m=document.createElement('span');m.id=id;m.className='sc-inline-error';m.textContent=msg;f.setAttribute('aria-invalid','true');f.setAttribute('aria-describedby',id);w?.classList.add('sc-field-error');if(w)w.appendChild(m);else f.insertAdjacentElement('afterend',m)};
+const setFieldError=(f,msg)=>{if(!f||!msg)return;clearFieldError(f);const w=fieldWrap(f);w?.classList.remove('sc-field-valid');const id=fieldId(f)+'-error',m=document.createElement('span');m.id=id;m.className='sc-inline-error';m.textContent=msg;f.setAttribute('aria-invalid','true');f.setAttribute('aria-describedby',id);w?.classList.add('sc-field-error');if(w)w.appendChild(m);else f.insertAdjacentElement('afterend',m)};
 const markFieldValid=f=>{if(!f)return;const w=fieldWrap(f);if(String(f.value||'').trim()&&!f.hasAttribute('aria-invalid'))w?.classList.add('sc-field-valid')};
 const bookingFieldMessage=(f,form)=>{if(!f)return'';const v=String(f.value||'').trim(),name=f.name;
 if(name==='first_name'&&!v)return'Enter the guest first name.';
@@ -24,7 +24,7 @@ if(name==='check_out'){if(!v)return'Choose a check-out date and time.';const ci=
 if(name==='adults'&&(!Number.isInteger(Number(v))||Number(v)<1))return'Enter at least 1 adult.';
 if(name==='children'&&v!==''&&(!Number.isInteger(Number(v))||Number(v)<0))return'Enter 0 or more children.';
 if(name==='total'&&v!==''&&(!Number.isFinite(Number(v))||Number(v)<0))return'Enter a booking total of 0 or more.';
-if(name==='id_type'&&form.dataset.idImageData&&!v)return'Choose the ID type for this photo.';
+if(name==='id_type'&&(form.dataset.idImageData||String(form.elements.id_number?.value||'').trim())&&!v)return'Choose the ID type.';
 if(name==='id_number'){const type=form.elements.id_type?.value||'';if((form.dataset.idImageData||type)&&!v)return'Enter the ID number.';if(type==='Aadhaar'&&v.replace(/\D/g,'').length!==12)return'Aadhaar number must contain 12 digits.';if(v&&v.replace(/[^a-z0-9]/gi,'').length<4)return'Enter at least 4 letters or numbers.'}
 if(name==='id_confirm'&&form.dataset.idImageData&&!f.checked)return'Confirm the ID photo matches this guest.';
 return''};
