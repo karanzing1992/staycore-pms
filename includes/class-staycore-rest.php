@@ -1141,6 +1141,7 @@ final class StayCore_REST {
         if($status==='checked_in'){
             $row=self::reservation_row($id);
             if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+            if(!empty($row['is_group'])) return new WP_Error('group_checkin_individual','Check in group guests individually from the group roster.',['status'=>409]);
             if(!empty($row['is_blacklisted'])) return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be checked in.'.(!empty($row['blacklist_reason'])?' Reason: '.$row['blacklist_reason']:''),['status'=>409,'reason'=>$row['blacklist_reason']??'']);
             $missing=self::checkin_requirements($row);
             if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified ID photo before check-in.',['status'=>409,'missing'=>$missing]);
