@@ -47,6 +47,10 @@ final class StayCore_REST {
                 'checkin_identity_gate'=>true,
                 'safe_returning_guest_match'=>true,
                 'guest_blacklist_gate'=>true,
+                'booking_image_ocr_v2'=>true,
+                'booking_id_photo_upload'=>true,
+                'processing_loaders'=>true,
+                'whatsapp_no_blank_tab_android'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -56,7 +60,10 @@ final class StayCore_REST {
         ]);
         register_rest_route('staycore/v1','/housekeeping',['methods'=>'POST','callback'=>[__CLASS__,'set_housekeeping'],'permission_callback'=>[__CLASS__,'can_housekeeping']]);
         register_rest_route('staycore/v1','/guest-lookup',['methods'=>'GET','callback'=>[__CLASS__,'guest_lookup'],'permission_callback'=>[__CLASS__,'can_guests']]);
-        register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/id-image',['methods'=>'GET','callback'=>[__CLASS__,'guest_id_image'],'permission_callback'=>[__CLASS__,'can_guest_id']]);
+        register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/id-image',[
+            ['methods'=>'GET','callback'=>[__CLASS__,'guest_id_image'],'permission_callback'=>[__CLASS__,'can_guest_id']],
+            ['methods'=>'POST','callback'=>[__CLASS__,'save_guest_id_image'],'permission_callback'=>[__CLASS__,'can_upload_guest_id']],
+        ]);
         register_rest_route('staycore/v1','/guests/(?P<id>\\d+)/blacklist',['methods'=>'POST','callback'=>[__CLASS__,'set_guest_blacklist'],'permission_callback'=>[__CLASS__,'can_manage']]);
         register_rest_route('staycore/v1','/self-checkin/(?P<id>\\d+)',[
             ['methods'=>'GET','callback'=>[__CLASS__,'self_checkin_get'],'permission_callback'=>'__return_true'],
@@ -432,6 +439,52 @@ final class StayCore_REST {
         return ['mime'=>$actual,'data'=>base64_encode($bytes),'width'=>(int)$info[0],'height'=>(int)$info[1],'updated_at'=>current_time('mysql')];
     }
 
+    private static function store_guest_id_image(int $guest_id,int $reservation_id,array $p) {
+        global $wpdb; $t=StayCore_DB::tables();
+        if(!self::can_upload_guest_id()) return new WP_Error('id_upload_forbidden','Your role cannot upload guest IDs.',['status'=>403]);
+        $guest=$wpdb->get_row($wpdb->prepare("SELECT id,id_type,id_number,nationality FROM {$t['guests']} WHERE id=%d",$guest_id),ARRAY_A);
+        if(!$guest) return new WP_Error('guest_not_found','Guest not found.',['status'=>404]);
+        if($reservation_id){
+            $owner=(int)$wpdb->get_var($wpdb->prepare("SELECT guest_id FROM {$t['reservations']} WHERE id=%d",$reservation_id));
+            if($owner!==$guest_id) return new WP_Error('reservation_guest_mismatch','This booking does not belong to this guest.',['status'=>409]);
+        }
+        $id_type=sanitize_text_field((string)($p['id_type']??$guest['id_type']??''));
+        $id_number=sanitize_text_field((string)($p['id_number']??$guest['id_number']??''));
+        $nationality=sanitize_text_field((string)($p['nationality']??$guest['nationality']??''));
+        $normalized=self::normalize_id_number($id_number);
+        if(!in_array($id_type,['Passport','Aadhaar','Driving Licence','Other'],true)) return new WP_Error('id_required','Choose a valid ID type before saving the ID image.',['status'=>400]);
+        if(strlen($normalized)<4 || strlen($normalized)>40) return new WP_Error('id_required','Enter a valid ID number before saving the ID image.',['status'=>400]);
+        if($id_type==='Aadhaar' && !preg_match('/^\\d{12}$/',$normalized)) return new WP_Error('id_required','Aadhaar number must contain 12 digits.',['status'=>400]);
+        if(empty($p['id_confirm'])) return new WP_Error('id_confirmation_required','Confirm that the selected image matches this guest and ID number.',['status'=>400]);
+        $ocr=self::normalize_id_number((string)($p['ocr_id_number']??''));
+        if($ocr!=='' && !hash_equals($ocr,$normalized)) return new WP_Error('id_mismatch','The ID number read from the image does not match the entered ID number.',['status'=>409]);
+        $method=sanitize_key((string)($p['capture_method']??'gallery'));
+        if(!in_array($method,['camera','gallery'],true)) $method='gallery';
+        $image=self::parse_id_image((string)($p['id_image_data']??''));
+        if(is_wp_error($image)) return $image;
+        $image['guest_id']=$guest_id;
+        $image['reservation_id']=$reservation_id;
+        $image['capture_method']=$method;
+        $image['id_number_hash']=self::id_number_hash($id_number);
+        self::merge_guest_meta($guest_id,['id_image'=>$image]);
+        $wpdb->update($t['guests'],[
+            'id_type'=>$id_type,
+            'id_number'=>$id_number,
+            'nationality'=>$nationality,
+            'updated_at'=>current_time('mysql'),
+        ],['id'=>$guest_id]);
+        StayCore_DB::log('guest_id_uploaded','guest',$guest_id,'Guest ID image saved.',['reservation_id'=>$reservation_id,'capture_method'=>$method]);
+        return $image;
+    }
+
+    public static function save_guest_id_image(WP_REST_Request $request) {
+        $guest_id=absint($request['id']); $p=$request->get_json_params();
+        $reservation_id=absint($p['reservation_id']??0);
+        $image=self::store_guest_id_image($guest_id,$reservation_id,$p);
+        if(is_wp_error($image)) return $image;
+        return rest_ensure_response(['saved'=>true,'guest_id'=>$guest_id,'reservation_id'=>$reservation_id,'capture_method'=>$image['capture_method']??'gallery','updated_at'=>$image['updated_at']??null]);
+    }
+
     public static function dashboard(): WP_REST_Response {
         global $wpdb; $t=StayCore_DB::tables(); $today=current_time('Y-m-d'); $start=$today.' 00:00:00'; $end=$today.' 23:59:59';
         $arrivals=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t['reservations']} WHERE DATE(check_in)=%s AND status='confirmed'",$today));
@@ -581,6 +634,21 @@ final class StayCore_REST {
         $stay_type=sanitize_key($p['stay_type']??'dorm_any'); $unit_ids=self::normalize_unit_ids($p);
         $auto_assign=array_key_exists('auto_assign',$p)?(bool)$p['auto_assign']:!$unit_ids;
         $was_auto_assign=!$unit_ids && $auto_assign;
+        $pending_id_image=null;
+        if(!empty($p['id_image_data'])){
+            if(!self::can_upload_guest_id()) return new WP_Error('id_upload_forbidden','Your role cannot upload guest IDs.',['status'=>403]);
+            $id_type=sanitize_text_field((string)($p['id_type']??''));
+            $id_number=sanitize_text_field((string)($p['id_number']??''));
+            $normalized=self::normalize_id_number($id_number);
+            if(!in_array($id_type,['Passport','Aadhaar','Driving Licence','Other'],true)) return new WP_Error('id_required','Choose the ID type before creating this booking.',['status'=>400]);
+            if(strlen($normalized)<4 || strlen($normalized)>40) return new WP_Error('id_required','Enter the ID number before creating this booking.',['status'=>400]);
+            if($id_type==='Aadhaar' && !preg_match('/^\\d{12}$/',$normalized)) return new WP_Error('id_required','Aadhaar number must contain 12 digits.',['status'=>400]);
+            if(empty($p['id_confirm'])) return new WP_Error('id_confirmation_required','Confirm the ID image matches this guest.',['status'=>400]);
+            $ocr=self::normalize_id_number((string)($p['ocr_id_number']??''));
+            if($ocr!=='' && !hash_equals($ocr,$normalized)) return new WP_Error('id_mismatch','The ID number read from the image does not match the entered ID number.',['status'=>409]);
+            $pending_id_image=self::parse_id_image((string)$p['id_image_data']);
+            if(is_wp_error($pending_id_image)) return $pending_id_image;
+        }
         if(!$first || !$check_in || !$check_out) return new WP_Error('missing_fields','Guest name, check-in and check-out are required.',['status'=>400]);
         if(strtotime($check_out)<=strtotime($check_in)) return new WP_Error('bad_dates','Check-out must be after check-in.',['status'=>400]);
         $blacklisted_match=self::find_blacklisted_guest($phone,$email,sanitize_text_field($p['id_number']??''));
@@ -640,6 +708,16 @@ final class StayCore_REST {
         $data=['guest_id'=>$guest_id,'unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??'direct'),'external_ref'=>sanitize_text_field($p['external_ref']??''),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>sanitize_key($p['status']??'confirmed'),'total'=>(float)($p['total']??0),'currency'=>strtoupper(sanitize_text_field($p['currency']??'INR')),'notes'=>sanitize_textarea_field($p['notes']??''),'meta'=>wp_json_encode($meta),'created_at'=>$now,'updated_at'=>$now];
         $wpdb->insert($t['reservations'],$data); if(!$wpdb->insert_id) return new WP_Error('db_error','Could not create reservation.',['status'=>500]); $id=(int)$wpdb->insert_id;
         foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>$now]);
+        if(is_array($pending_id_image)){
+            $method=sanitize_key((string)($p['capture_method']??'gallery'));
+            if(!in_array($method,['camera','gallery'],true)) $method='gallery';
+            $pending_id_image['guest_id']=$guest_id;
+            $pending_id_image['reservation_id']=$id;
+            $pending_id_image['capture_method']=$method;
+            $pending_id_image['id_number_hash']=self::id_number_hash((string)$p['id_number']);
+            self::merge_guest_meta($guest_id,['id_image'=>$pending_id_image]);
+            StayCore_DB::log('guest_id_uploaded','guest',$guest_id,'Guest ID image saved during booking creation.',['reservation_id'=>$id,'capture_method'=>$method]);
+        }
         StayCore_DB::log('reservation_created','reservation',$id,'Reservation created.',['unit_ids'=>$unit_ids,'auto_assigned'=>$auto_assign,'stay_type'=>$stay_type,'returning_guest'=>(bool)$existing]);
         StayCore_Integrations::emit('reservation_created',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
         return rest_ensure_response(self::reservation_row($id));
