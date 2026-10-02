@@ -72,6 +72,10 @@ final class StayCore_REST {
                 'enhanced_search_empty_states'=>true,
                 'simplified_more_attention'=>true,
                 'actionable_empty_states'=>true,
+                'team_management'=>true,
+                'staff_pin_reset_revert'=>true,
+                'staff_session_revocation'=>true,
+                'reuse_existing_wp_users'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -117,8 +121,169 @@ final class StayCore_REST {
             ['methods'=>'GET','callback'=>[__CLASS__,'payments'],'permission_callback'=>[__CLASS__,'can_payments']],
             ['methods'=>'POST','callback'=>[__CLASS__,'add_payment'],'permission_callback'=>[__CLASS__,'can_payments']],
         ]);
+        register_rest_route('staycore/v1','/staff-members',[
+            ['methods'=>'GET','callback'=>[__CLASS__,'staff_members'],'permission_callback'=>[__CLASS__,'can_staff']],
+            ['methods'=>'POST','callback'=>[__CLASS__,'create_staff_member'],'permission_callback'=>[__CLASS__,'can_staff']],
+        ]);
+        register_rest_route('staycore/v1','/staff-members/(?P<id>\d+)',[
+            ['methods'=>'PUT','callback'=>[__CLASS__,'update_staff_member'],'permission_callback'=>[__CLASS__,'can_staff']],
+        ]);
+        register_rest_route('staycore/v1','/staff-members/(?P<id>\d+)/pin',['methods'=>'POST','callback'=>[__CLASS__,'reset_staff_pin'],'permission_callback'=>[__CLASS__,'can_staff']]);
+        register_rest_route('staycore/v1','/staff-members/(?P<id>\d+)/pin/revert',['methods'=>'POST','callback'=>[__CLASS__,'revert_staff_pin'],'permission_callback'=>[__CLASS__,'can_staff']]);
+        register_rest_route('staycore/v1','/staff-members/(?P<id>\d+)/sessions/revoke',['methods'=>'POST','callback'=>[__CLASS__,'revoke_staff_sessions'],'permission_callback'=>[__CLASS__,'can_staff']]);
         register_rest_route('staycore/v1','/activity',['methods'=>'GET','callback'=>[__CLASS__,'activity'],'permission_callback'=>[__CLASS__,'can_activity']]);
         register_rest_route('staycore/v1','/integrations',['methods'=>'GET','callback'=>fn()=>rest_ensure_response(StayCore_Integrations::all()),'permission_callback'=>[__CLASS__,'can_settings']]);
+    }
+
+    private static function staff_member_record(WP_User $user): array {
+        $id=(int)$user->ID;
+        $preset=StayCore_Access::preset($id);
+        $presets=StayCore_Access::presets();
+        $roles=array_values((array)$user->roles);
+        return [
+            'id'=>$id,
+            'display_name'=>(string)$user->display_name,
+            'login_name'=>StayCore_Access::staff_name($id),
+            'email'=>(string)$user->user_email,
+            'preset'=>$preset,
+            'preset_label'=>$preset!==''?StayCore_Access::preset_label($preset):'No PMS access',
+            'active'=>$preset!=='' && StayCore_Access::is_active($id),
+            'has_pin'=>StayCore_Access::has_pin($id),
+            'can_revert_pin'=>StayCore_Access::has_previous_pin($id),
+            'last_login'=>StayCore_Access::last_login($id),
+            'wp_roles'=>$roles,
+            'wp_role_label'=>$roles?implode(', ',array_map(static fn($r)=>ucwords(str_replace(['_','-'],' ',$r)),$roles)):'No base role',
+            'is_current'=>$id===get_current_user_id(),
+        ];
+    }
+
+    public static function staff_members(WP_REST_Request $request) {
+        $users=get_users(['number'=>200,'orderby'=>'display_name','order'=>'ASC']);
+        $staff=[]; $candidates=[];
+        foreach($users as $user){
+            if(!$user instanceof WP_User) continue;
+            $preset=StayCore_Access::preset((int)$user->ID);
+            if($preset!==''){
+                $staff[]=self::staff_member_record($user);
+            } else {
+                $candidates[]=[
+                    'id'=>(int)$user->ID,
+                    'display_name'=>(string)$user->display_name,
+                    'email'=>(string)$user->user_email,
+                    'wp_roles'=>array_values((array)$user->roles),
+                    'wp_role_label'=>$user->roles?implode(', ',array_map(static fn($r)=>ucwords(str_replace(['_','-'],' ',$r)),(array)$user->roles)):'No base role',
+                ];
+            }
+        }
+        $presets=[];
+        foreach(StayCore_Access::presets() as $key=>$def) $presets[]=['value'=>$key,'label'=>(string)$def['label']];
+        return rest_ensure_response(['staff'=>$staff,'candidates'=>$candidates,'presets'=>$presets,'current_user_id'=>get_current_user_id()]);
+    }
+
+    public static function create_staff_member(WP_REST_Request $request) {
+        $p=$request->get_json_params();
+        $name=trim(sanitize_text_field((string)($p['login_name']??'')));
+        $preset=sanitize_key((string)($p['preset']??''));
+        $pin=trim((string)($p['pin']??''));
+        $existing_id=absint($p['existing_user_id']??0);
+        $email=sanitize_email((string)($p['email']??''));
+        if($name==='') return new WP_Error('staff_name_required','Enter the staff sign-in name.',['status'=>400]);
+        if(!isset(StayCore_Access::presets()[$preset])) return new WP_Error('staff_preset_required','Choose a PMS access role.',['status'=>400]);
+        if(!preg_match('/^\d{4}$/',$pin)) return new WP_Error('bad_pin','PIN must be exactly 4 digits.',['status'=>400]);
+        if(!StayCore_Access::name_available($name,0)) return new WP_Error('staff_name_taken','That staff sign-in name is already in use.',['status'=>409]);
+
+        $created=false;
+        if($existing_id){
+            $user=get_userdata($existing_id);
+            if(!$user instanceof WP_User) return new WP_Error('staff_not_found','Existing WordPress user not found.',['status'=>404]);
+            if(StayCore_Access::preset($existing_id)!=='') return new WP_Error('staff_already_linked','That WordPress user already has StayCore access.',['status'=>409]);
+        } else {
+            if($email!==''){
+                $email_user=get_user_by('email',$email);
+                if($email_user instanceof WP_User) return new WP_Error('existing_wp_user','A WordPress user already exists with this email. Choose that user from “Reuse existing user”.',['status'=>409,'user_id'=>(int)$email_user->ID]);
+            }
+            $base=sanitize_user(strtolower(str_replace(' ','_',$name)),true);
+            if($base==='') $base='staycore_staff';
+            $login=$base;
+            for($i=2;username_exists($login);$i++) $login=$base.'_'.$i;
+            $user_id=wp_insert_user([
+                'user_login'=>$login,
+                'user_pass'=>wp_generate_password(32,true,true),
+                'user_email'=>$email,
+                'display_name'=>$name,
+                'role'=>'subscriber',
+            ]);
+            if(is_wp_error($user_id)) return $user_id;
+            $existing_id=(int)$user_id; $created=true;
+            $user=get_userdata($existing_id);
+        }
+
+        $set_name=StayCore_Access::set_staff_name($existing_id,$name);
+        if(is_wp_error($set_name)){
+            if($created) wp_delete_user($existing_id);
+            return $set_name;
+        }
+        if(!StayCore_Access::assign_preset($existing_id,$preset)){
+            if($created) wp_delete_user($existing_id);
+            return new WP_Error('staff_access_failed','Could not assign PMS access.',['status'=>500]);
+        }
+        $set_pin=StayCore_Access::set_pin($existing_id,$pin,true);
+        if(is_wp_error($set_pin)){
+            if($created) wp_delete_user($existing_id);
+            return $set_pin;
+        }
+        update_user_meta($existing_id,'staycore_staff_active','1');
+        StayCore_DB::log($created?'staff_created':'staff_linked','user',$existing_id,$created?'Staff user created.':'Existing WordPress/POS user linked to StayCore.',['preset'=>$preset]);
+        return rest_ensure_response(self::staff_member_record(get_userdata($existing_id)));
+    }
+
+    public static function update_staff_member(WP_REST_Request $request) {
+        $id=absint($request['id']); $user=get_userdata($id);
+        if(!$user instanceof WP_User || StayCore_Access::preset($id)==='') return new WP_Error('staff_not_found','Staff member not found.',['status'=>404]);
+        $p=$request->get_json_params();
+
+        if(array_key_exists('login_name',$p)){
+            $r=StayCore_Access::set_staff_name($id,(string)$p['login_name']);
+            if(is_wp_error($r)) return $r;
+        }
+        if(array_key_exists('preset',$p)){
+            $preset=sanitize_key((string)$p['preset']);
+            if(!isset(StayCore_Access::presets()[$preset])) return new WP_Error('staff_preset_required','Choose a valid PMS access role.',['status'=>400]);
+            $was_active=StayCore_Access::is_active($id);
+            StayCore_Access::assign_preset($id,$preset);
+            if(!$was_active) StayCore_Access::set_active($id,false);
+        }
+        if(array_key_exists('active',$p)){
+            $active=(bool)$p['active'];
+            if(!$active && $id===get_current_user_id()) return new WP_Error('cannot_disable_self','You cannot disable your own active staff account.',['status'=>409]);
+            $r=StayCore_Access::set_active($id,$active);
+            if(is_wp_error($r)) return $r;
+        }
+        return rest_ensure_response(self::staff_member_record(get_userdata($id)));
+    }
+
+    public static function reset_staff_pin(WP_REST_Request $request) {
+        $id=absint($request['id']); $user=get_userdata($id);
+        if(!$user instanceof WP_User || StayCore_Access::preset($id)==='') return new WP_Error('staff_not_found','Staff member not found.',['status'=>404]);
+        $pin=trim((string)(($request->get_json_params()['pin']??'')));
+        $r=StayCore_Access::set_pin($id,$pin,true);
+        if(is_wp_error($r)) return $r;
+        return rest_ensure_response(self::staff_member_record(get_userdata($id)));
+    }
+
+    public static function revert_staff_pin(WP_REST_Request $request) {
+        $id=absint($request['id']); $user=get_userdata($id);
+        if(!$user instanceof WP_User || StayCore_Access::preset($id)==='') return new WP_Error('staff_not_found','Staff member not found.',['status'=>404]);
+        $r=StayCore_Access::revert_pin($id);
+        if(is_wp_error($r)) return $r;
+        return rest_ensure_response(self::staff_member_record(get_userdata($id)));
+    }
+
+    public static function revoke_staff_sessions(WP_REST_Request $request) {
+        $id=absint($request['id']); $user=get_userdata($id);
+        if(!$user instanceof WP_User || StayCore_Access::preset($id)==='') return new WP_Error('staff_not_found','Staff member not found.',['status'=>404]);
+        StayCore_Access::revoke_sessions($id,$id===get_current_user_id());
+        return rest_ensure_response(['ok'=>true,'kept_current'=>$id===get_current_user_id()]);
     }
 
     private static function payment_summary(int $reservation_id): array {
