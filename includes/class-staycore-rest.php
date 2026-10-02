@@ -228,6 +228,37 @@ final class StayCore_REST {
         return $slots;
     }
 
+    private static function recount_group_assignment_counts(int $reservation_id): void {
+        global $wpdb; $t=StayCore_DB::tables();
+        $rows=$wpdb->get_results($wpdb->prepare(
+            "SELECT unit_id,COUNT(*) c FROM {$t['reservation_guests']} WHERE reservation_id=%d AND unit_id IS NOT NULL GROUP BY unit_id",
+            $reservation_id
+        ),ARRAY_A);
+        $counts=[]; foreach($rows as $r) $counts[(int)$r['unit_id']]=(int)$r['c'];
+        $assign=self::assignments($reservation_id);
+        foreach($assign as $a){
+            $uid=(int)$a['unit_id'];
+            $wpdb->update($t['reservation_units'],['guests'=>(int)($counts[$uid]??0)],['reservation_id'=>$reservation_id,'unit_id'=>$uid]);
+        }
+    }
+
+    private static function next_group_unit(int $reservation_id): int {
+        global $wpdb; $t=StayCore_DB::tables();
+        $assign=self::assignments($reservation_id);
+        if(!$assign) return 0;
+        $used=[];
+        $rows=$wpdb->get_results($wpdb->prepare(
+            "SELECT unit_id,COUNT(*) c FROM {$t['reservation_guests']} WHERE reservation_id=%d AND unit_id IS NOT NULL GROUP BY unit_id",
+            $reservation_id
+        ),ARRAY_A);
+        foreach($rows as $r) $used[(int)$r['unit_id']]=(int)$r['c'];
+        foreach($assign as $a){
+            $uid=(int)$a['unit_id']; $cap=max(1,(int)$a['capacity']);
+            if((int)($used[$uid]??0)<$cap) return $uid;
+        }
+        return 0;
+    }
+
     private static function reservation_row(int $id): ?array {
         global $wpdb; $t=StayCore_DB::tables();
         $row=$wpdb->get_row($wpdb->prepare(
