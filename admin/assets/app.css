@@ -100,3 +100,14 @@ body.staycore-staff-portal #staycore-app{max-width:1080px}
 .sc-attention-issue.payment{background:#fff1cc}.sc-attention-issue.overdue{background:#fde8e3}.sc-attention-issue.service_recovery{background:#f7e9f6}.sc-attention-issue.contact{background:#e8eef9}
 .sc-filtered-units{padding-top:0}
 @media(max-width:782px){.sc-attention-summary{align-items:flex-start;display:grid}.sc-attention-breakdown{text-align:left}.sc-attention-page{padding-top:4px}.sc-attention-card{padding:14px}.sc-attention-card .sc-actions{grid-template-columns:1fr}.sc-attention-chips{margin-right:-12px;padding-right:12px}}
+
+/* v0.6.6 processing + ID upload */
+.sc-process{display:inline-flex;align-items:center;gap:7px;min-height:20px}
+.sc-process.is-busy{color:var(--sc-ink);font-weight:600}
+.sc-spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(23,23,19,.18);border-top-color:currentColor;border-radius:50%;animation:sc-spin .75s linear infinite;vertical-align:-2px;flex:0 0 auto}
+.button .sc-spinner{margin-right:6px}
+.sc-id-upload-box{display:grid;gap:8px;padding:11px;margin-top:8px;border:1px dashed var(--sc-line);border-radius:13px;background:#fff}
+.sc-id-confirm{display:flex!important;align-items:flex-start!important;gap:8px!important;color:var(--sc-ink)!important}
+.sc-id-confirm input{width:18px!important;height:18px!important;min-height:0!important;margin-top:1px}
+@keyframes sc-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.sc-spinner{animation-duration:1.5s}}
