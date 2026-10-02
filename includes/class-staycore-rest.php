@@ -54,6 +54,8 @@ final class StayCore_REST {
                 'field_validation_v2'=>true,
                 'submit_error_summary'=>true,
                 'simplified_form_labels'=>true,
+                'non_gated_review_flow'=>true,
+                'strict_staff_pin_validation'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
