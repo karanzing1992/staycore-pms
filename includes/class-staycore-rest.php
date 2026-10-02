@@ -37,6 +37,17 @@ final class StayCore_REST {
     public static function can_manage(): bool { return StayCore_Access::can('manage_staycore_pms'); }
 
     public static function routes(): void {
+        register_rest_route('staycore/v1','/health',['methods'=>'GET','callback'=>static fn()=>rest_ensure_response([
+            'status'=>'ok',
+            'version'=>STAYCORE_PMS_VERSION,
+            'features'=>[
+                'camera_only_id_capture'=>true,
+                'explicit_country_code'=>true,
+                'verified_id_binding'=>true,
+                'checkin_identity_gate'=>true,
+                'safe_returning_guest_match'=>true,
+            ],
+        ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
         register_rest_route('staycore/v1','/units',[
             ['methods'=>'GET','callback'=>[__CLASS__,'units'],'permission_callback'=>[__CLASS__,'can_view']],
