@@ -56,6 +56,10 @@ final class StayCore_REST {
                 'simplified_form_labels'=>true,
                 'non_gated_review_flow'=>true,
                 'strict_staff_pin_validation'=>true,
+                'ios_safari_photo_normalization'=>true,
+                'ocr_optional_for_id_upload'=>true,
+                'ios_whatsapp_same_tab'=>true,
+                'legacy_dialog_fallback'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
@@ -768,7 +772,7 @@ final class StayCore_REST {
             if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
             if(!empty($row['is_blacklisted'])) return new WP_Error('guest_blacklisted','This guest is blacklisted and cannot be checked in.'.(!empty($row['blacklist_reason'])?' Reason: '.$row['blacklist_reason']:''),['status'=>409,'reason'=>$row['blacklist_reason']??'']);
             $missing=self::checkin_requirements($row);
-            if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified camera ID photo before check-in.',['status'=>409,'missing'=>$missing]);
+            if($missing) return new WP_Error('checkin_requirements','Complete guest phone, nationality, ID details and a verified ID photo before check-in.',['status'=>409,'missing'=>$missing]);
             foreach($assign as $a) if(($a['status']??'available')!=='available' || ($a['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',$a['name'].' is not ready. Housekeeping must mark it clean before check-in.',['status'=>409]);
         }
         if($status==='checked_out'){
