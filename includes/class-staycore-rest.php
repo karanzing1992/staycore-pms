@@ -659,11 +659,19 @@ final class StayCore_REST {
     }
 
     public static function guest_id_image(WP_REST_Request $request) {
+        global $wpdb; $t=StayCore_DB::tables();
         $guest_id=absint($request['id']);
+        $guest=$wpdb->get_row($wpdb->prepare("SELECT id,id_number FROM {$t['guests']} WHERE id=%d",$guest_id),ARRAY_A);
+        if(!$guest) return new WP_Error('not_found','Guest not found.',['status'=>404]);
         $image=self::guest_meta($guest_id)['id_image']??null;
         if(!is_array($image)||empty($image['data'])||empty($image['mime'])) return new WP_Error('not_found','No ID image is stored for this guest.',['status'=>404]);
-        StayCore_DB::log('guest_id_viewed','guest',$guest_id,'Guest ID image viewed.');
-        return rest_ensure_response(['mime'=>$image['mime'],'data'=>$image['data'],'updated_at'=>$image['updated_at']??null]);
+        if(!self::valid_guest_id_image($guest_id,(string)$guest['id_number'],$image)) return new WP_Error('id_binding_mismatch','Stored ID image is not verified against this guest record. Capture a fresh ID photo.',['status'=>409]);
+        StayCore_DB::log('guest_id_viewed','guest',$guest_id,'Verified guest ID image viewed.',['source_reservation_id'=>(int)($image['reservation_id']??0)]);
+        return rest_ensure_response([
+            'mime'=>$image['mime'],'data'=>$image['data'],'updated_at'=>$image['updated_at']??null,
+            'verified'=>true,'guest_id'=>$guest_id,'source_reservation_id'=>(int)($image['reservation_id']??0),
+            'capture_method'=>$image['capture_method']??'camera',
+        ]);
     }
 
     public static function self_checkin_get(WP_REST_Request $request) {
