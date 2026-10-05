@@ -76,6 +76,7 @@ final class StayCore_REST {
                 'staff_pin_reset_revert'=>true,
                 'staff_session_revocation'=>true,
                 'reuse_existing_wp_users'=>true,
+                'booking_history'=>true,
             ],
         ]),'permission_callback'=>'__return_true']);
         register_rest_route('staycore/v1','/dashboard',['methods'=>'GET','callback'=>[__CLASS__,'dashboard'],'permission_callback'=>[__CLASS__,'can_view']]);
