@@ -2,7 +2,7 @@
 /**
  * Plugin Name: StayCore PMS — Andaz Edition
  * Description: Mobile-first property management system for WordPress. Brand-neutral core with adapters for WooCommerce and future integrations.
- * Version: 0.8.0
+ * Version: 0.8.1
  * Author: Andaz Vibe Stay
  * Requires at least: 6.4
  * Requires PHP: 8.0
@@ -10,7 +10,7 @@
  */
 if (!defined('ABSPATH')) exit;
 
-define('STAYCORE_PMS_VERSION', '0.8.0');
+define('STAYCORE_PMS_VERSION', '0.8.1');
 define('STAYCORE_PMS_FILE', __FILE__);
 define('STAYCORE_PMS_DIR', plugin_dir_path(__FILE__));
 define('STAYCORE_PMS_URL', plugin_dir_url(__FILE__));
