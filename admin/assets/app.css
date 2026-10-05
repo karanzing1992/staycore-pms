@@ -223,3 +223,16 @@ dialog.sc-dialog-fallback[open]{display:block!important;position:fixed!important
 @media(max-width:390px){
   .sc-team-actions{grid-template-columns:1fr}
 }
+
+
+/* v0.8.1 booking history */
+.sc-history-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:9px}
+.sc-history-filters label{display:grid;gap:4px;font-size:11px;color:var(--sc-muted)}
+.sc-history-filters input,.sc-history-filters select{width:100%;min-height:42px;border:1px solid var(--sc-line);border-radius:11px;background:#fff;padding:8px 10px;font-size:14px}
+.sc-history-presets{display:flex;gap:6px;overflow:auto;padding-top:7px}
+.sc-history-presets button{border:1px solid var(--sc-line);background:#fff;border-radius:999px;padding:7px 10px;white-space:nowrap;font-size:11px}
+@media(max-width:782px){
+  .sc-history-filters{grid-template-columns:1fr 1fr}
+  .sc-history-filters input,.sc-history-filters select{min-height:46px;font-size:16px}
+}
+@media(max-width:390px){.sc-history-filters{grid-template-columns:1fr}}
