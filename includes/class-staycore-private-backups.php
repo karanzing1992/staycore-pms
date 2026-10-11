@@ -103,6 +103,18 @@ final class StayCore_Private_Backups {
         return true;
     }
 
+    /** Diagnostics only: never reveal encryption keys or backup file names. */
+    public static function status(): array {
+        $root=self::root();
+        $crypto=function_exists('openssl_encrypt') && function_exists('openssl_decrypt');
+        $key=$root!==null?self::key($root):null;
+        return [
+            'ready'=>$crypto && $root!==null && $key!==null,
+            'private_directory_ready'=>$root!==null,
+            'encryption_ready'=>$crypto && $key!==null,
+        ];
+    }
+
     /**
      * Read an encrypted file for a staging recovery. This does not modify a
      * database. Only server-side tools should call it; never expose the
