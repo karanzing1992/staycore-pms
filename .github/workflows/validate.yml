@@ -31,3 +31,5 @@ jobs:
         run: node --check admin/assets/app.js
       - name: Frontend checkout contract
         run: node tests/frontend-contract.cjs
+      - name: Booking atomic-write contracts
+        run: node tests/atomic-data-contract.cjs
