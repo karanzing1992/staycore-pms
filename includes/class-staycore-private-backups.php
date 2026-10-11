@@ -138,6 +138,29 @@ final class StayCore_Private_Backups {
         return $data;
     }
 
+    /**
+     * Authorize a recovery revision against an independently authenticated
+     * private archive. Merely matching a mutable SQL SHA256 field is not enough.
+     */
+    public static function attests(int $booking,string $checksum): bool {
+        if($booking<1 || !preg_match('/^[a-f0-9]{64}$/D',$checksum)) return false;
+        $root=self::root();
+        if($root===null) return false;
+        $key=self::key($root);
+        if($key===null) return false;
+        foreach(self::files($booking) as $filename){
+            $file=$root.'/'.$filename;
+            if(is_link($file) || !is_file($file) || filesize($file)>10485760) continue;
+            $content=@file_get_contents($file);
+            $item=is_string($content)?json_decode($content,true):null;
+            if(!is_array($item) || (int)($item['reservation_id']??0)!==$booking ||
+                !hash_equals($checksum,(string)($item['sha256']??''))) continue;
+            $verified=self::decrypt($item,$key);
+            if(is_string($verified) && hash_equals($checksum,hash('sha256',$verified))) return true;
+        }
+        return false;
+    }
+
     /** Returns filenames only, never backup contents or key material. */
     public static function files(int $booking): array {
         if($booking<1) return [];
