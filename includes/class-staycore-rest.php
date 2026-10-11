@@ -1399,6 +1399,9 @@ final class StayCore_REST {
         $before=self::local_datetime((string)$existing['check_out']);
         $after=self::local_datetime($check_out);
         if(!$before || !$after) return new WP_Error('bad_dates','Enter a valid checkout date.',['status'=>400]);
+        if($existing['status']==='checked_in' && ($check_in!==(string)$existing['check_in'] || $check_out!==(string)$existing['check_out'])) {
+            return new WP_Error('checked_in_dates_locked','Checked-in dates are locked. Use Extend Booking for additional nights or complete checkout.',['status'=>409]);
+        }
         if($after->format('Y-m-d')>$before->format('Y-m-d')) {
             return new WP_Error('use_extend_booking','Use Extend Booking to add nights and update the balance.',['status'=>409]);
         }
