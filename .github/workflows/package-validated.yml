@@ -1,0 +1,52 @@
+name: Package validated StayCore
+
+# Builds a reviewable plugin archive only AFTER the validation workflow passes.
+# This workflow deliberately does not contact WordPress or call Deployer for Git.
+on:
+  workflow_run:
+    workflows: ["Validate StayCore"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Verify validated commit
+        env:
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$VALIDATED_SHA"
+          printf '%s\n' "$VALIDATED_SHA" > staycore-source-sha.txt
+      - name: Build WordPress-only ZIP
+        run: |
+          mkdir -p dist/staycore-pms
+          cp staycore-pms.php dist/staycore-pms/
+          cp -R includes admin public dist/staycore-pms/
+          (cd dist && zip -q -r ../staycore-pms.zip staycore-pms)
+          unzip -t staycore-pms.zip
+          if unzip -Z1 staycore-pms.zip | grep -E '(^|/)(tests|\.github|\.git)(/|$)' ; then
+            echo "Unexpected source/test files in production ZIP" >&2
+            exit 1
+          fi
+          sha256sum staycore-pms.zip > staycore-pms.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staycore-wordpress-${{ github.event.workflow_run.head_sha }}
+          path: |
+            staycore-pms.zip
+            staycore-pms.sha256
+            staycore-source-sha.txt
+          if-no-files-found: error
+          retention-days: 14
