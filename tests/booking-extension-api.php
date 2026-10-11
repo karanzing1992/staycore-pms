@@ -8,6 +8,7 @@ function absint($value): int { return abs((int)$value); }
 function sanitize_text_field($value): string { return trim(strip_tags((string)$value)); }
 function sanitize_textarea_field($value): string { return trim(strip_tags((string)$value)); }
 function current_time(string $format): string { return $format==='mysql'?'2026-10-11 09:00:00':'2026-10-11'; }
+function current_datetime(): DateTimeImmutable { return new DateTimeImmutable('2026-10-11 09:00:00',wp_timezone()); }
 function is_wp_error($value): bool { return $value instanceof WP_Error; }
 function rest_ensure_response($value) { return $value; }
 function apply_filters(string $name, $value, ...$args) { return $value; }
@@ -110,6 +111,9 @@ $r=StayCore_REST::extend_reservation(request());
 assert_case($r instanceof WP_Error&&$r->get_error_code()==='booking_closed'&&$db->updates===0,'Closed booking cannot be extended');
 $db=reset_db();$r=StayCore_REST::extend_reservation(request(['expected_total'=>'999']));
 assert_case($r instanceof WP_Error&&$r->get_error_code()==='stale_booking'&&$db->updates===0,'Changed total stops duplicate extension');
+$db=reset_db();$db->reservation['check_out']='2026-10-08 11:00:00';
+$r=StayCore_REST::extend_reservation(request(['expected_check_out'=>'2026-10-08 11:00:00','new_checkout_date'=>'2026-10-10']));
+assert_case($r instanceof WP_Error&&$r->get_error_code()==='extension_not_future'&&$db->updates===0,'Cannot extend to a checkout that is already past');
 $db=reset_db();$db->overlap=true;$r=StayCore_REST::extend_reservation(request());
 assert_case($r instanceof WP_Error&&$r->get_error_code()==='extension_unavailable'&&$db->updates===0,'Conflicting bed blocks extension');
 $db=reset_db();$db->unit_status='maintenance';$r=StayCore_REST::extend_reservation(request());
