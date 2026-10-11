@@ -22,6 +22,8 @@ jobs:
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: PHP regression tests
         run: php tests/regression.php
+      - name: Booking extension regression tests
+        run: php tests/booking-extension.php
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
