@@ -37,6 +37,15 @@
 - Set password protection for only staging and disable indexing/outbound emails/WhatsApp/payment/OTA webhooks. Keep vault directory **outside** `public_html`. Stage v0.8.7 Git changes only after static PHP tests, independent backup and isolated installation health checks.
 - **Do not deploy to production or claim real cloud backup protection** until actual Supabase encrypted upload, authenticated read-back and full offline passphrase/key restoration have been demonstrated.
 
+## Manual WordPress staging: current Hostinger screen (2026-10-11)
+
+- Continued via connected Opera Mac worker, no upgrade of hosting plan and no PHP runtime changes.
+- **Active Hostinger screen:** Databases → Management, on `mokshagoa.com` hosting dashboard. The new MySQL database suffix **`andazqa`** and new MySQL username suffix **`andazqa`** have been entered and verified by their labelled UI fields. Both are *new resources*, not the production DB.
+- **Pending human-only credential step:** Choose and enter a NEW random MySQL password in the Hostinger password field and save it in a password manager, then click `Create`. Do not copy the password to chat, Opera agent, GitHub, or any transcript. Hostinger may prepend the account identifier to DB name/user; copy the **full actual identifiers** for later WordPress configuration. After creation, independently verify MySQL Management lists this as a **second** database, leaving the 515 MB production database `u424614865_8dTmk` unchanged.
+- Hostinger official current manual subdomain WordPress installation tutorial: https://www.hostinger.com/in/tutorials/install-wordpress-on-subdomain/
+- Hostinger File Manager hPanel route was opened by Opera, but the page rendered empty in the agent's DOM; don't claim successful staging file upload. Use the Hostinger UI File Manager button to open the full file manager in its proper tab, navigate only to `domains/mokshagoa.com/public_html/staycore-stage` and upload/extract the official WordPress 7.1.3 archive. Make sure files end up directly in the staging folder, not the parent `public_html` or nested `wordpress` folder.
+- The stage URL currently displays Hostinger's default placeholder; no WordPress staging installation has occurred. No private Supabase secret is installed on the WordPress host, and **off-site encrypted booking sync is NOT live**.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
