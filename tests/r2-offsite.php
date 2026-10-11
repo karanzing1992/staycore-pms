@@ -21,6 +21,7 @@ class WP_Error { public function __construct(public string $code,public string $
 class StayCore_Private_Backups {
     public static function vault_path(): ?string { return $GLOBALS['testvault'];}
     public static function wrapped_recovery_key(string $pass): ?string {return 'fake-AES-GCM-encrypted-key-envelope';}
+    public static function read(int $booking,string $filename): ?array { return $booking===12?['reservation'=>['id'=>12]]:null; }
 }
 function wp_remote_request(string $url,array $args): array {
     $method=$args['method'];
