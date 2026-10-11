@@ -93,6 +93,14 @@
 - After protection succeeds, resume initial WordPress database setup with database `u424614865_andazqa`, user `u424614865_staycoreqa`, host `localhost`, prefix `scstage_`, and the privately saved database password. **Never put either password in chat, GitHub, Supabase automation jobs or snapshots**.
 - Do not use the separate Supabase project as the WordPress MySQL database, change hosting-wide PHP 8.2, clone the live bookings, or deploy draft StayCore code until staging is installed and isolated; Supabase encrypted cloud backup/restore remains untested.
 
+## CRITICAL: Directory-protection incident and recovery — October 11, 2026
+
+- Attempting to password-protect only staging mistakenly produced **Hostinger Password Protect Directories entry: Area `/`, username `Karan`**, blocking the live `mokshagoa.com` WordPress REST/API with HTTP 401 and Opera homepage loads. **Do not repeat that protection flow without first proving the resulting area is only `/staycore-stage`.**
+- The user submitted root-entry deletion in Hostinger. **Verified afterward:** Hostinger's protected directories table was empty; live WPVibe authenticated read-only `site_info` succeeded again with administrator role, WordPress 7.1.2 and PHP 8.2.34. The live WordPress runtime was **not changed** by staging.
+- **Staging is currently NOT password-protected** (no Hostinger protected entries). The fresh WordPress setup is publicly addressable and **no DB credentials or WordPress administrator account should be entered until staging-only protection is verified**. Any security configuration must be checked for scope and access with independent probes of both the live site and stage before proceeding.
+- No live PMS booking data/database edits, fresh WP installation completion, Supabase secret installation, encrypted backup upload, or restore drill were done in this recovery check.
+- Re-evaluate whether Hostinger's Protect Directories is relative to primary-site document root rather than subdomain. Prefer a site-specific staging `.htaccess` and an auth-user-file **outside webroot**, deployed **only in the staging folder**, if that can be implemented and tested safely. Do not apply a plan-wide or root-site configuration.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
