@@ -27,6 +27,8 @@ final class StayCore_Private_Backups {
         // parent is often public: require an explicit private location.
         if (!defined('STAYCORE_PRIVATE_BACKUP_DIR') &&
             in_array(strtolower(basename($parent)), ['public_html','www','htdocs','httpdocs'], true)) return null;
+        // Never place archives under common webroot folder names.
+        if (preg_match('#/(?:public_html|htdocs|httpdocs|www)(?:/|$)#i',$root)) return null;
         if (is_link($root)) return null;
         if (!is_dir($root) && !@mkdir($root, 0700, false)) return null;
         if (!is_dir($root) || !is_writable($root)) return null;
@@ -38,6 +40,10 @@ final class StayCore_Private_Backups {
         $file = $root . '/vault.key';
         if (is_link($file)) return null;
         if (is_file($file)) {
+            @chmod($file,0600);
+            clearstatcache(true,$file);
+            $mode=@fileperms($file);
+            if($mode===false || ($mode & 0077)!==0) return null;
             $key = @file_get_contents($file);
             return is_string($key) && strlen($key) === 32 ? $key : null;
         }
