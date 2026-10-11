@@ -1018,6 +1018,8 @@ final class StayCore_REST {
             return new WP_Error('group_guest_blacklisted','This guest is blacklisted.'.($b['reason']?' Reason: '.$b['reason']:''),['status'=>409,'guest_id'=>(int)$blocked['id'],'reason'=>$b['reason']]);
         }
 
+        $safe=StayCore_Data_Safety::safeguard($id,'before_group_guest_added');
+        if(is_wp_error($safe)) return $safe;
         $guest_id=0; $candidate=self::find_guest_row($phone,$email);
         if($candidate && strtolower(trim((string)$candidate['first_name']))===strtolower(trim($first))){
             $guest_id=(int)$candidate['id'];
@@ -1076,6 +1078,8 @@ final class StayCore_REST {
         $blocked=self::find_blacklisted_guest($phone,$email,'');
         if($blocked && (int)$blocked['id']!==(int)($member['guest_id']??0)) return new WP_Error('group_guest_blacklisted','This guest is blacklisted.',['status'=>409]);
 
+        $safe=StayCore_Data_Safety::safeguard($id,'before_group_guest_updated');
+        if(is_wp_error($safe)) return $safe;
         $guest_id=(int)($member['guest_id']??0);
         if(!$guest_id){
             $wpdb->insert($t['guests'],['first_name'=>$first,'last_name'=>$last,'phone'=>$phone,'email'=>$email,'created_at'=>$now,'updated_at'=>$now]);
@@ -1102,6 +1106,8 @@ final class StayCore_REST {
         $id=absint($request['id']); $member_id=absint($request['member']); $member=self::group_member_row($id,$member_id);
         if(!$member) return new WP_Error('not_found','Group member not found.',['status'=>404]);
         if(($member['role']??'')==='lead') return new WP_Error('lead_remove','The lead guest cannot be removed from the group.',['status'=>409]);
+        $safe=StayCore_Data_Safety::safeguard($id,'before_group_guest_cleared');
+        if(is_wp_error($safe)) return $safe;
         $wpdb->update($t['reservation_guests'],[
             'guest_id'=>null,'status'=>'pending','label'=>'Guest','meta'=>null,'updated_at'=>current_time('mysql'),
         ],['id'=>$member_id]);
@@ -1123,6 +1129,8 @@ final class StayCore_REST {
                 if(!$unit || ($unit['status']??'available')!=='available' || ($unit['housekeeping_status']??'clean')!=='clean') return new WP_Error('unit_not_ready',($unit['name']??'Assigned unit').' is not ready.',['status'=>409]);
             }
         }
+        $safe=StayCore_Data_Safety::safeguard($id,'before_group_guest_status');
+        if(is_wp_error($safe)) return $safe;
         $wpdb->update($t['reservation_guests'],['status'=>$status,'updated_at'=>current_time('mysql')],['id'=>$member_id]);
         if($status==='checked_in'){
             $reservation=$wpdb->get_row($wpdb->prepare("SELECT status FROM {$t['reservations']} WHERE id=%d",$id),ARRAY_A);
