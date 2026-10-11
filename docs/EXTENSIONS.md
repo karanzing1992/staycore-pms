@@ -18,7 +18,7 @@ add_action('staycore_pms_before_integrations_boot', static function () {
     StayCore_Integrations::register_extension('payments-pos', [
         'name' => 'Payments & POS',
         'version' => '1.0.0',
-        'requires_core' => '0.8.2',
+        'requires_core' => '0.8.3',
         'requires_php' => '8.0.0',
         'requires_wordpress' => '6.4.0',
         'permissions' => ['staycore_manage_payments'],
