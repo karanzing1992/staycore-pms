@@ -18,6 +18,7 @@ define('STAYCORE_PMS_URL', plugin_dir_url(__FILE__));
 require_once STAYCORE_PMS_DIR . 'includes/class-staycore-access.php';
 require_once STAYCORE_PMS_DIR . 'includes/class-staycore-db.php';
 require_once STAYCORE_PMS_DIR . 'includes/class-staycore-integrations.php';
+require_once STAYCORE_PMS_DIR . 'includes/class-staycore-booking-extend.php';
 require_once STAYCORE_PMS_DIR . 'includes/class-staycore-rest.php';
 require_once STAYCORE_PMS_DIR . 'admin/class-staycore-admin.php';
 require_once STAYCORE_PMS_DIR . 'public/class-staycore-public.php';
