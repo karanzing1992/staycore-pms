@@ -70,7 +70,11 @@ final class StayCore_Recovery_Admin {
             $booking
         ), ARRAY_A);
         if(!is_array($units)) return null;
-        return ['row'=>$row,'units'=>$units];
+        $members=$wpdb->get_results($wpdb->prepare(
+            "SELECT id FROM {$t['reservation_guests']} WHERE reservation_id=%d",$booking
+        ),ARRAY_A);
+        if(!is_array($members)) return null;
+        return ['row'=>$row,'units'=>$units,'members'=>$members];
     }
 
     private static function fingerprint(array $current): string {
@@ -81,6 +85,7 @@ final class StayCore_Recovery_Admin {
         $fields['unit_id']=(string)$row['unit_id'];
         $fields['guest_id']=(string)$row['guest_id'];
         $fields['updated_at']=(string)$row['updated_at'];
+        $fields['member_ids']=array_map(static fn($m)=>(int)$m['id'],$current['members']);
         $fields['units']=array_map(
             static fn($u)=>[(int)$u['unit_id'],(int)($u['guests']??1)],
             $current['units']
@@ -112,8 +117,9 @@ final class StayCore_Recovery_Admin {
         if((int)$saved['guest_id']!==(int)$row['guest_id']) {
             return 'Guest identity changed; resolve this in staging.';
         }
-        if(!empty($data['reservation_guests']) || !empty($current['row']['meta']) &&
-            str_contains((string)$current['row']['meta'],'"group_booking":true')){
+        if(!empty($data['reservation_guests']) || !empty($current['members']) ||
+            (!empty($current['row']['meta']) &&
+             str_contains((string)$current['row']['meta'],'"group_booking":true'))){
             return 'Group bookings need a separate staged reconciliation; automatic restore is disabled.';
         }
         if(!$data['reservation_units']) return 'Revision has no assigned inventory.';
