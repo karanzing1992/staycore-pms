@@ -13,6 +13,7 @@ final class StayCore_DB {
             'payments' => $wpdb->prefix . 'staycore_payments',
             'tasks' => $wpdb->prefix . 'staycore_tasks',
             'activity' => $wpdb->prefix . 'staycore_activity',
+            'revisions' => $wpdb->prefix . 'staycore_reservation_revisions',
         ];
     }
 
@@ -159,6 +160,19 @@ final class StayCore_DB {
             PRIMARY KEY (id), KEY entity (entity_type, entity_id), KEY created_at (created_at)
         ) $charset;");
 
+        // Append-only booking revisions protect the previous state of a stay
+        // before destructive edits. This table remains private to server-side code.
+        dbDelta("CREATE TABLE {$t['revisions']} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            reservation_id BIGINT UNSIGNED NOT NULL,
+            action VARCHAR(60) NOT NULL,
+            payload LONGTEXT NOT NULL,
+            checksum CHAR(64) NOT NULL,
+            user_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id), KEY reservation_id (reservation_id), KEY action (action), KEY created_at (created_at)
+        ) $charset;");
+
         if (!get_option('staycore_pms_settings')) add_option('staycore_pms_settings', [
             'property_name' => 'Andaz Vibe Stay - Arambol, Goa', 'currency' => 'INR',
             'timezone' => wp_timezone_string() ?: 'Asia/Kolkata', 'check_in_time' => '13:00', 'check_out_time' => '11:00',
@@ -185,30 +199,30 @@ final class StayCore_DB {
         if (class_exists('StayCore_Access')) StayCore_Access::ensure_roles();
     }
 
+    /**
+     * Backfill the mapping table but NEVER merge or delete legacy bookings.
+     * Older versions silently deleted reservation rows for duplicate group refs
+     * (e.g. the 2026-10-01 incident). Duplicate legacy refs must be reconciled
+     * manually against a verified database backup.
+     */
     private static function migrate_reservation_units(): void {
         global $wpdb;
-        $t = self::tables();
-        $now = current_time('mysql');
+        $t=self::tables();
         $wpdb->query("INSERT IGNORE INTO {$t['reservation_units']} (reservation_id,unit_id,guests,created_at) SELECT id,unit_id,GREATEST(1,adults+children),created_at FROM {$t['reservations']}");
 
-        $groups = $wpdb->get_results("SELECT external_ref,guest_id,source,check_in,check_out,COUNT(*) c FROM {$t['reservations']} WHERE external_ref IS NOT NULL AND external_ref<>'' GROUP BY external_ref,guest_id,source,check_in,check_out HAVING c>1", ARRAY_A);
-        foreach ($groups as $g) {
-            $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT * FROM {$t['reservations']} WHERE external_ref=%s AND guest_id=%d AND source=%s AND check_in=%s AND check_out=%s ORDER BY id ASC",
-                $g['external_ref'], $g['guest_id'], $g['source'], $g['check_in'], $g['check_out']
-            ), ARRAY_A);
-            if (count($rows) < 2) continue;
-            $master = (int)$rows[0]['id']; $sum = 0.0; $all_ids = [];
-            foreach ($rows as $row) { $sum += (float)$row['total']; $all_ids[] = (int)$row['id']; }
-            foreach (array_slice($rows,1) as $row) {
-                $old = (int)$row['id']; $unit = (int)$row['unit_id'];
-                $wpdb->query($wpdb->prepare("INSERT IGNORE INTO {$t['reservation_units']} (reservation_id,unit_id,guests,created_at) VALUES (%d,%d,%d,%s)", $master,$unit,max(1,(int)$row['adults']+(int)$row['children']),$now));
-                $wpdb->update($t['payments'], ['reservation_id'=>$master], ['reservation_id'=>$old]);
-                $wpdb->delete($t['reservation_units'], ['reservation_id'=>$old]);
-                $wpdb->delete($t['reservations'], ['id'=>$old]);
-            }
-            $wpdb->update($t['reservations'], ['total'=>$sum,'updated_at'=>$now], ['id'=>$master]);
-            self::log('group_migrated','reservation',$master,'Grouped legacy multi-unit booking into one reservation.',['legacy_ids'=>$all_ids]);
+        $duplicates=$wpdb->get_results(
+            "SELECT external_ref,guest_id,source,check_in,check_out,COUNT(*) c
+             FROM {$t['reservations']}
+             WHERE external_ref IS NOT NULL AND external_ref<>''
+             GROUP BY external_ref,guest_id,source,check_in,check_out HAVING c>1",
+            ARRAY_A
+        );
+        if (is_array($duplicates) && $duplicates) {
+            // Do not log external reference, guest ID or personal information.
+            self::log('legacy_duplicates_detected','reservation',null,
+                'Legacy booking groups need manual reconciliation; no booking was removed.',
+                ['duplicate_group_count'=>count($duplicates)]);
+            error_log('StayCore: legacy grouped bookings require non-destructive manual reconciliation.');
         }
     }
 
