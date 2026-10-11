@@ -32,5 +32,5 @@ check(str_contains($src,'self::TICKET_TTL'),'Preview requires an expiring ticket
 check(str_contains($src,"'before_admin_restore'")&&str_contains($src,"'after_admin_restore'"),'Rollback and restored states are both protected');
 check(str_contains($src,"'action'=>'admin_booking_restored'"),'Restore creates dedicated audit record');
 check(str_contains($src,"'payment_policy'=>'unchanged'"),'Restore audit states payment ledger is preserved');
-check(str_contains($src,"'status='captured'"),'Restore checks already captured payments');
+check(str_contains($src,"status='captured'"),'Restore checks already captured payments');
 check(!str_contains($src,"\$wpdb->delete(\$t['payments']"),'Restore cannot delete recorded payments');
