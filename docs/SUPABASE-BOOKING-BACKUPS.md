@@ -68,6 +68,15 @@
 - File Browser `Upload` menu opened and `File` control clicked, but the Opera agent timed out as the native file chooser was requested. **No upload or extraction confirmed.** User must select `wordpress-7.1.3.zip` in File Browser while breadcrumb reads `public_html > staycore-stage`, then verify ZIP appears in that folder. The official ZIP contains a top-level `wordpress/` directory; move its contents into the staging document root rather than leaving a nested `staycore-stage/wordpress` install.
 - WordPress is **not installed** on staging yet, and real encrypted Supabase upload/readback and recovery drill have **not happened**. Do not change hosting-wide PHP from 8.2, import live booking rows, expose secrets, or deploy production changes.
 
+## WordPress ZIP upload and staging extraction — verified 2026-10-11
+
+- Confirmed in authenticated Hostinger File Browser `public_html/staycore-stage`: **`wordpress-7.1.3.zip`**, 35.5 MiB, plus existing `default.php` only.
+- Successfully extracted the ZIP into `public_html/staycore-stage/wp-extracted/wordpress/`. Verified the official WordPress core tree, including 3 directories `wp-admin`, `wp-content`, `wp-includes` and 16 PHP/other core files.
+- Selected **exactly 19** WordPress core entries in this nested folder and opened File Browser's `Move` destination picker. **Nothing has been moved yet.** The destination picker is *still* at `/files/public_html/staycore-stage/wp-extracted/wordpress/`. Opera could not reliably navigate its `..` control, including native mouse attempts.
+- For a manual completion in Opera's already open File Browser tab: in the `Move` dialog, double-click the `..` row to navigate first to `/files/public_html/staycore-stage/wp-extracted/`, then double-click `..` again to reach **`/files/public_html/staycore-stage/`**; verify that **exact destination** before clicking `MOVE`. **NEVER** select the parent `/files/public_html/` root. Then verify 19 core entries live directly under the staging document root.
+- `default.php` is Hostinger's staging placeholder and may need to be removed from **only the staging directory** after WordPress is verified; do not delete production `default.php`.
+- WordPress itself is not yet installed/configured; manual DB credentials are held only by the owner. Supabase cloud backup uploads and recovery drill remain untested; StayCore production unchanged.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
