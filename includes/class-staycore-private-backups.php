@@ -106,6 +106,9 @@ final class StayCore_Private_Backups {
             @unlink($file);
             return false;
         }
+        // Local backup is durable; queue offsite synchronization separately.
+        // Cloud outages must not prevent recording a genuine booking.
+        if(class_exists('StayCore_R2_Offsite')) StayCore_R2_Offsite::schedule_soon();
         return true;
     }
 
