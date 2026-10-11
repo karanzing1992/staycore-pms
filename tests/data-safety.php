@@ -23,6 +23,14 @@ class WP_Error {
     public function __construct(string $code,string $message='',array $extra=[]) { $this->code=$code; }
     public function get_error_code(): string { return $this->code; }
 }
+class StayCore_Private_Backups {
+    public static bool $works = true;
+    public static int $saves = 0;
+    public static function save(int $id,string $action,string $payload,string $sha): bool {
+        self::$saves++;
+        return self::$works && hash_equals(hash('sha256',$payload),$sha);
+    }
+}
 class StayCore_DB {
     public static function tables(): array {
         return ['reservations'=>'wp_staycore_reservations','guests'=>'wp_staycore_guests',
@@ -78,7 +86,12 @@ $wpdb->fail=true;
 $r=StayCore_Data_Safety::safeguard(12,'before_status_change');
 check($r instanceof WP_Error && $r->get_error_code()==='booking_snapshot_failed','Unprotected write is blocked');
 $wpdb->fail=false;
+StayCore_Private_Backups::$works=false;
+$r=StayCore_Data_Safety::safeguard(12,'before_status_change');
+check($r instanceof WP_Error && $r->get_error_code()==='booking_snapshot_failed','Disk backup failure also blocks writes');
+StayCore_Private_Backups::$works=true;
 check(StayCore_Data_Safety::safeguard(12,'before_status_change')===true,'Protected write permitted');
+check(StayCore_Private_Backups::$saves>=3,'On-save encrypted backup hook invoked');
 $GLOBALS['options']['admin_email']='ops@example.org';
 $wpdb->current_ids=[12];
 StayCore_Data_Safety::checkpoint();

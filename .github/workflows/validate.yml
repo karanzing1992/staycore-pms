@@ -24,6 +24,10 @@ jobs:
         run: php tests/regression.php
       - name: Booking data-safety regressions
         run: php tests/data-safety.php
+      - name: Private booking backup encryption tests
+        run: php tests/private-backups.php
+      - name: Administrator recovery safeguards
+        run: php tests/admin-restore.php
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
