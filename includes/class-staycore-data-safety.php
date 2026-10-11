@@ -48,6 +48,9 @@ final class StayCore_Data_Safety {
             'payments' => $payments,
         ]);
         if (!is_string($payload) || $payload === '') return false;
+        // An independent encrypted file is written before the SQL revision.
+        // A disk/crypto failure must never permit an unprotected booking edit.
+        if (!StayCore_Private_Backups::save($id,$action,$payload,hash('sha256',$payload))) return false;
         $inserted = $wpdb->insert($t['revisions'], [
             'reservation_id' => $id,
             'action' => $action,
