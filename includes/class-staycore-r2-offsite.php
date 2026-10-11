@@ -10,6 +10,7 @@ if (!defined('ABSPATH')) exit;
  */
 final class StayCore_R2_Offsite {
     private const HOOK='staycore_r2_offsite_sync';
+    private const SOON_HOOK='staycore_r2_offsite_once';
     private const MAX_BATCH=25;
     private const MAX_ARCHIVE=10485760;
     private const BACKUP_DELAY_ALERT=1800;
@@ -196,8 +197,9 @@ final class StayCore_R2_Offsite {
                 }
                 $item=json_decode($bytes,true);
                 if(!is_array($item) || ($item['format']??'')!=='staycore-booking-v1' ||
-                    !preg_match('/^booking-'.(int)($item['reservation_id']??0).'-[a-f0-9]{32}\\.scbackup$/D',$name)){
-                    self::failure('Private backup failed format validation.');
+                    !preg_match('/^booking-'.(int)($item['reservation_id']??0).'-[a-f0-9]{32}\\.scbackup$/D',$name) ||
+                    !is_array(StayCore_Private_Backups::read((int)$item['reservation_id'],$name))){
+                    self::failure('Private backup failed authenticated decryption; not uploaded.');
                     continue;
                 }
                 $object='v1/'.$c['prefix'].'/bookings/'.$name;
@@ -265,13 +267,14 @@ final class StayCore_R2_Offsite {
     }
 
     public static function schedule_soon(): void {
-        if(self::config()!==null && !wp_next_scheduled(self::HOOK))
-            wp_schedule_single_event(time()+60,self::HOOK);
+        if(self::config()!==null && !wp_next_scheduled(self::SOON_HOOK))
+            wp_schedule_single_event(time()+60,self::SOON_HOOK);
     }
 
     public static function boot(): void {
         add_filter('cron_schedules',[__CLASS__,'schedules']);
         add_action(self::HOOK,[__CLASS__,'sync']);
+        add_action(self::SOON_HOOK,[__CLASS__,'sync']);
         if(self::config()!==null && !wp_next_scheduled(self::HOOK))
             wp_schedule_event(time()+120,'staycore_r2_five_minutes',self::HOOK);
     }
