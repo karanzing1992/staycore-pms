@@ -24,6 +24,8 @@ jobs:
         run: php tests/regression.php
       - name: Booking extension regression tests
         run: php tests/booking-extension.php
+      - name: Booking extension API tests
+        run: php tests/booking-extension-api.php
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
