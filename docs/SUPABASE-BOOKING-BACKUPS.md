@@ -85,6 +85,14 @@
 - Operator must **double-click `..` once inside Move modal**, inspect the picker footer reading **`Currently navigating on: /files/public_html/staycore-stage/.`** (exact, no `wp-extracted`, no parent `public_html` alone), then press **MOVE**, and recheck that `wp-admin`, `wp-content`, `wp-includes`, `wp-login.php`, and `index.php` now appear directly in staging root.
 - Do not delete parent `wp-extracted` or staging `default.php` before confirming WordPress setup. No WordPress database config or install yet. Existing staging DB `u424614865_andazqa` and user `u424614865_staycoreqa`; password only owner holds.
 
+## Verified WordPress staging root and access-control prerequisite (2026-10-11)
+
+- **19 official WordPress 7.1.3 core files/folders verified at document root** `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage/`, including `index.php`, `wp-admin`, `wp-content`, `wp-includes`, and `wp-login.php`. The previous nested `wp-extracted` directory and official ZIP remain as cleanup candidates **after installation QA**. The live `public_html` contents were not overwritten.
+- **Staging WordPress setup confirmed to work via HTTPS**: `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` displays the standalone database-connection form. **Not configured or installed yet**. This publicly accessible setup page must be protected promptly to prevent third-party initial installation.
+- Hostinger hPanel → Advanced → Password Protect Directories opened through authenticated Opera. **Nonsecret fields filled but not submitted**: Directory `/staycore-stage`, Username `andaz_stage_guard`. The operator must enter a unique staging HTTP-basic-auth password locally in Opera and click **Protect**. **Verify that only staging has become password-protected**; do not accidentally protect directory `/` (which could interrupt the production site). Official instructions: https://www.hostinger.com/support/1583470-how-to-password-protect-a-website-in-hostinger/
+- After protection succeeds, resume initial WordPress database setup with database `u424614865_andazqa`, user `u424614865_staycoreqa`, host `localhost`, prefix `scstage_`, and the privately saved database password. **Never put either password in chat, GitHub, Supabase automation jobs or snapshots**.
+- Do not use the separate Supabase project as the WordPress MySQL database, change hosting-wide PHP 8.2, clone the live bookings, or deploy draft StayCore code until staging is installed and isolated; Supabase encrypted cloud backup/restore remains untested.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
