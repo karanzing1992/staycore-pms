@@ -74,24 +74,26 @@ final class StayCore_Data_Safety {
     }
 
     /** Snapshot all bookings once a day, including those created elsewhere. */
-    public static function checkpoint(): void {
+    public static function checkpoint(bool $force=false): array {
         global $wpdb;
         $t=StayCore_DB::tables();
         $today=current_time('Y-m-d');
         $ids=$wpdb->get_col("SELECT id FROM {$t['reservations']} ORDER BY id ASC LIMIT 2001");
-        if (!is_array($ids)) return;
+        if (!is_array($ids)) return ['total'=>0,'archived'=>0,'failed'=>1];
         if (count($ids)>2000) {
             self::alert('Booking checkpoint exceeds the safe batch limit (2000). Set up a separate DB backup.');
-            return;
+            return ['total'=>count($ids),'archived'=>0,'failed'=>1];
         }
         $failures=0;
+        $archived=0;
         foreach ($ids as $id) {
             $already=(int)$wpdb->get_var($wpdb->prepare(
                 "SELECT id FROM {$t['revisions']} WHERE reservation_id=%d AND action='daily_checkpoint' AND created_at>=%s LIMIT 1",
                 (int)$id, $today.' 00:00:00'
             ));
-            if ($already) continue;
+            if ($already && !$force) continue;
             if (!self::snapshot_reservation((int)$id, 'daily_checkpoint')) $failures++;
+            else $archived++;
         }
         $current=count($ids);
         $previous=get_option('staycore_last_booking_checkpoint_count',null);
@@ -101,6 +103,7 @@ final class StayCore_Data_Safety {
         if ($failures) self::alert($failures.' StayCore booking revisions could not be saved. Check the database immediately.');
         if (!$failures) update_option('staycore_last_booking_checkpoint_count',$current,false);
         update_option('staycore_last_booking_checkpoint_time',current_time('mysql'),false);
+        return ['total'=>$current,'archived'=>$archived,'failed'=>$failures];
     }
 
     private static function alert(string $message): void {
