@@ -77,6 +77,14 @@
 - `default.php` is Hostinger's staging placeholder and may need to be removed from **only the staging directory** after WordPress is verified; do not delete production `default.php`.
 - WordPress itself is not yet installed/configured; manual DB credentials are held only by the owner. Supabase cloud backup uploads and recovery drill remain untested; StayCore production unchanged.
 
+## Hostinger manual staging status — 2026-10-11 (latest verified)
+
+- User moved selected 19 files; live check showed their destination was **one level short**, not root: `public_html/staycore-stage/wp-extracted/`. The original `wp-extracted/wordpress/` was empty. Hostinger live `public_html` root was never selected by the agent.
+- Subsequently all 19 files and directories were again selected in `wp-extracted` and **Move file** modal is open. **Current picker path confirmed:** `/files/public_html/staycore-stage/wp-extracted/`.
+- **The Move action has NOT been submitted.** Opera agent single clicks, double click attempts and Enter on picker `..` did not change picker path. Do not submit at current path: it would be a no-op.
+- Operator must **double-click `..` once inside Move modal**, inspect the picker footer reading **`Currently navigating on: /files/public_html/staycore-stage/.`** (exact, no `wp-extracted`, no parent `public_html` alone), then press **MOVE**, and recheck that `wp-admin`, `wp-content`, `wp-includes`, `wp-login.php`, and `index.php` now appear directly in staging root.
+- Do not delete parent `wp-extracted` or staging `default.php` before confirming WordPress setup. No WordPress database config or install yet. Existing staging DB `u424614865_andazqa` and user `u424614865_staycoreqa`; password only owner holds.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
