@@ -116,6 +116,22 @@
 - Immediate next step: in Opera File Browser's OPEN `.htaccess` editor at `public_html > staycore-stage > .htaccess`, click directly into the code area and paste a guarded deny-all rule without conditional modules (`RewriteEngine On\nRewriteRule ^ - [F,L]`), press Save, test stage returns 403, and verify production WordPress remains accessible. An all-deny rule is TEMPORARY and MUST be replaced with valid staging-only HTTP Basic auth before any database credentials are entered or installation is resumed. Never edit the main site's `.htaccess`.
 - No fresh DB connection or WordPress install performed. Production WPVibe authenticated `site_info` still succeeds after the staging-only editor attempt with WP 7.1.2 and PHP 8.2.34.
 
+## STACK CHANGE — temporary stage-only isolation VERIFIED LIVE (2026-10-11)
+
+- **Deployment:** Hostinger File Browser, staging document root `public_html/staycore-stage/.htaccess` only. After operator focused its code editor, Opera Mac bridge `nativePaste` supplied:
+  ```apache
+  # ANDAZ StayCore temporary staging lockdown
+  # Applied only inside /public_html/staycore-stage
+  RewriteEngine On
+  RewriteRule ^ - [F,L]
+  ```
+  Saved via File Browser; Opera queue source jobs `andaz-stage-focused-guard-paste-20261011-160` and `andaz-stage-focused-guard-save-20261011-161`.
+- **Verified stage response (live, not a deployment claim alone):** `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` responded **403 Forbidden** with body "Access to this resource on the server is denied!" and browser title `403 Forbidden`. Read-only Opera verification job `andaz-stage-focused-guard-verify-20261011-162` / local Supabase automation job row 575.
+- **Production compatibility:** Independent authenticated read-only WPVibe `site_info` against `https://mokshagoa.com` succeeded after guard saved, with WP 7.1.2, PHP 8.2.34 and verified authenticated connection. No production `.htaccess`, booking data, DB, WordPress runtime or payments changed.
+- **Status/limitation:** This is an intentional **temporary deny-all**, not an authenticated staging portal. It blocks the admin/operator too; install cannot proceed until a secure **staging-specific access control** replaces the rule. Staging has not yet completed initial WordPress install or attached DB `u424614865_andazqa`. Offsite backup upload/restore validation remains untested.
+- **Rollback:** Use Hostinger File Browser directly at `public_html/staycore-stage/.htaccess` to remove or adjust `RewriteRule ^ - [F,L]` **only after an alternative gate is verified**; never modify the main site's `public_html/.htaccess`. Check both stage and production on every change. Existing earlier Hostinger root `/` password protection incident is resolved and must not recur.
+- **Evidence:** [StayCore staging backup PR #39](https://github.com/karanzing1992/staycore-pms/pull/39), `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` (expected 403 under guard), `https://mokshagoa.com` (production site unaffected).
+  
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
