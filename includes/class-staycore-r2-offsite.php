@@ -136,7 +136,14 @@ final class StayCore_R2_Offsite {
         foreach($files as $path){
             $name=basename($path);
             if(!preg_match('/^booking-[0-9]+-[a-f0-9]{32}\\.scbackup$/D',$name) ||
-                is_link($path) || is_file($path.'.synced')) continue;
+                is_link($path)) continue;
+            if(is_file($path.'.synced')){
+                $receipt=@file_get_contents($path.'.synced');
+                $local_hash=@hash_file('sha256',$path);
+                if(is_string($receipt) && is_string($local_hash) &&
+                    preg_match('/^([a-f0-9]{64})/',$receipt,$m) &&
+                    hash_equals($m[1],$local_hash)) continue;
+            }
             $pending[]=$path;
             $age=max(0,time()-(int)filemtime($path));
             if($age>$oldest)$oldest=$age;
@@ -209,12 +216,42 @@ final class StayCore_R2_Offsite {
                 @chmod($receipt,0600);
                 update_option('staycore_r2_last_verified',gmdate('Y-m-d H:i:s'),false);
             }
+            // Verify one previously uploaded cloud archive per day.
+            $last_audit=(int)get_option('staycore_r2_last_restore_audit_epoch',0);
+            if(time()-$last_audit>=86400) {
+                $root=StayCore_Private_Backups::vault_path();
+                $verified=false;
+                if($root) {
+                    $synced=glob($root.'/booking-*.scbackup.synced');
+                    if(is_array($synced) && $synced){
+                        sort($synced,SORT_STRING);
+                        $index=(int)(floor(time()/86400)%count($synced));
+                        $path=substr($synced[$index],0,-7);
+                        $body=@file_get_contents($path);
+                        if(is_string($body) && strlen($body)<=self::MAX_ARCHIVE){
+                            $key='v1/'.$c['prefix'].'/bookings/'.basename($path);
+                            $verified=self::remote_only_verify($c,$key,$body);
+                        }
+                    } else $verified=true;
+                }
+                if($verified) update_option('staycore_r2_last_restore_audit_epoch',time(),false);
+                else self::failure('Daily independent cloud restore-verification failed.');
+            }
             $remaining=self::pending();
             if($remaining['oldest']>self::BACKUP_DELAY_ALERT)
                 self::alert('Some encrypted booking backups have not been copied offsite for more than 30 minutes.');
         } finally {
             delete_transient($lock);
         }
+    }
+
+    private static function remote_only_verify(array $c,string $object,string $body): bool {
+        $head=self::call($c,'HEAD',$object);
+        if(!self::response_ok($head,200)) return false;
+        if(!hash_equals(hash('sha256',$body),(string)wp_remote_retrieve_header($head,'x-amz-meta-sha256'))) return false;
+        $get=self::call($c,'GET',$object);
+        return self::response_ok($get,200) &&
+            hash_equals(hash('sha256',$body),hash('sha256',(string)wp_remote_retrieve_body($get)));
     }
 
     private static function failure(string $message): void {
