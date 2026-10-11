@@ -26,6 +26,8 @@ jobs:
         run: php tests/data-safety.php
       - name: Private booking backup encryption tests
         run: php tests/private-backups.php
+      - name: Supabase encrypted offsite storage tests
+        run: php tests/supabase-offsite.php
       - name: Administrator recovery safeguards
         run: php tests/admin-restore.php
       - uses: actions/setup-node@v4
