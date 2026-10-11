@@ -2,6 +2,15 @@
 
 **Code status:** Draft v0.8.7 (stacked on encrypted on-save booking safeguards v0.8.6). GitHub validation uses a mocked Supabase HTTPS server; the **separate Supabase project and private bucket were created on 2026-10-11**, but no real encrypted cloud upload or staging restore was performed. Production remains on StayCore v0.8.1 until an approved release.
 
+## STACK CHANGE — Staging WordPress dashboard reached; MySQL isolation independently verified (2026-10-11)
+
+- **WordPress install reported complete by site operator:** The operator logged into the access-protected `https://staycore-stage.mokshagoa.com/wp-admin/` and confirmed the WordPress **dashboard is visible** after manually entering fresh staging-only MySQL details. This is **operator-confirmed**, not an independently authenticated WordPress API/admin verification; do not overstate it.
+- **Verified separately via authenticated, read-only Hostinger hPanel MySQL Management:** staging DB `u424614865_andazqa` (**1 MB**) and staging-only DB user `u424614865_staycoreqa` are present; production DB `u424614865_8dTmk` (**515 MB**) and its different production user remain listed. These databases are distinct; no existing customer/booking data was copied.
+- **Previously verified staging gate:** the isolated `public_html/staycore-stage/.htaccess` contains four HTTP Basic Auth directives pointing to `/.andaz-stage-auth/andaz-stage-users` (credential file out of webroot). Operator validated that login permits WordPress setup. Production read-only WPVibe succeeded after this configuration, WordPress 7.1.2/PHP 8.2.34 unchanged. Do not touch production document root or change Hostinger-wide PHP.
+- **Supabase independent read-only recheck:** dedicated `andaz-pms-backup-vault` project `zwymapyqltevaaxdqqeu` is **ACTIVE_HEALTHY**, Mumbai; private `andaz-pms-private` bucket `public=false`, 10 MiB limit, **zero objects**, and **no Storage object/bucket RLS policies** currently present. Therefore **no real offsite backup or restore has run**; do not claim the staging WordPress install is backed up automatically.
+- **Next gated actions:** verify staging has search engine discouragement and no email/WhatsApp/OTA/payment integrations; configure a new dedicated staging private local encrypted-backup directory and server-side vault secret plus independent externally held recovery passphrase (never through GitHub/chat/automation); package/review StayCore v0.8.7 only on staging; create synthetic booking, confirm AES-GCM local archive and verified private remote upload/readback; test offline queue and separate clean-room restore plus admin-only audit. Retain pre-October Hostinger snapshot. Production StayCore v0.8.1 unchanged.
+- **Rollback:** stage WordPress can be locked down by restoring the staging-only deny-all `RewriteEngine On\nRewriteRule ^ - [F,L]` if HTTP access control fails, without modifying production. No staging restore or real bookings change authorized at this milestone.
+
 ## Actual provisioned Supabase resources (verified 2026-10-11)
 
 - Organization: `karanzing1992's Org` (ID `nustutyfswtkmljhnked`)
