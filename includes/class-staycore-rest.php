@@ -1339,6 +1339,10 @@ final class StayCore_REST {
             $p['nightly_rate']??null
         );
         if(is_wp_error($quote)) return $quote;
+        $new_checkout_at=self::local_datetime($quote['new_checkout']);
+        if(!$new_checkout_at || $new_checkout_at<=current_datetime()){
+            return new WP_Error('extension_not_future','New checkout must be in the future.',['status'=>400]);
+        }
         $reason=sanitize_textarea_field((string)($p['reason']??''));
         if($quote['additional_charge']<=0){
             if(!self::can_manage()) return new WP_Error('complimentary_forbidden','Manager approval is required for a complimentary extension.',['status'=>403]);
