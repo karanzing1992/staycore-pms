@@ -1316,18 +1316,55 @@ final class StayCore_REST {
         $adults=max(1,absint($p['adults']??$existing['adults'])); $children=absint($p['children']??$existing['children']);
         if(($adults+$children)>$capacity) return new WP_Error('capacity_exceeded','Selected units allow a maximum of '.$capacity.' guests.',['status'=>400]);
         $guest=['first_name'=>sanitize_text_field($p['first_name']??$existing['first_name']),'last_name'=>sanitize_text_field($p['last_name']??$existing['last_name']),'phone'=>sanitize_text_field($p['phone']??$existing['phone']),'email'=>sanitize_email($p['email']??$existing['email']),'nationality'=>sanitize_text_field($p['nationality']??$existing['nationality']),'id_type'=>sanitize_text_field($p['id_type']??$existing['id_type']),'id_number'=>sanitize_text_field($p['id_number']??$existing['id_number']),'notes'=>sanitize_textarea_field($p['guest_notes']??$existing['guest_notes']),'updated_at'=>current_time('mysql')];
-        $wpdb->update($t['guests'],$guest,['id'=>(int)$existing['guest_id']]);
+        // Changes to an existing booking must have a durable prior revision.
+        // Multi-table reservation edits run as a unit rather than deleting
+        // assignments first and risking an empty booking on failed inserts.
+        if($wpdb->query('START TRANSACTION')===false) return new WP_Error('db_transaction_failed','Booking edit could not start safely.',['status'=>503]);
+        $safe=StayCore_Data_Safety::safeguard($id,'before_reservation_update');
+        if(is_wp_error($safe)){ $wpdb->query('ROLLBACK'); return $safe; }
+        if($wpdb->update($t['guests'],$guest,['id'=>(int)$existing['guest_id']])===false){
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('db_error','Could not update guest details; no booking edits were saved.',['status'=>500]);
+        }
         $data=['unit_id'=>$unit_ids[0],'source'=>sanitize_key($p['source']??$existing['source']),'external_ref'=>sanitize_text_field($p['external_ref']??$existing['external_ref']),'check_in'=>$check_in,'check_out'=>$check_out,'adults'=>$adults,'children'=>$children,'status'=>$existing['status'],'total'=>(float)($p['total']??$existing['total']),'notes'=>sanitize_textarea_field($p['notes']??$existing['notes']),'updated_at'=>current_time('mysql')];
-        $wpdb->update($t['reservations'],$data,['id'=>$id]);
+        if($wpdb->update($t['reservations'],$data,['id'=>$id])===false){
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('db_error','Could not update reservation; no booking edits were saved.',['status'=>500]);
+        }
         if(isset($p['unit_ids'])){
-            $wpdb->delete($t['reservation_units'],['reservation_id'=>$id]);
-            foreach($unit_ids as $uid) $wpdb->insert($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>$uid,'guests'=>1,'created_at'=>current_time('mysql')]);
+            $old_ids=array_map(static fn($x)=>(int)$x['unit_id'],$existing['assignments']);
+            // Never do DELETE all followed by INSERT; preserve unchanged IDs
+            // and commit both additions and removals atomically.
+            foreach(array_diff($unit_ids,$old_ids) as $uid){
+                if($wpdb->insert($t['reservation_units'],[
+                    'reservation_id'=>$id,'unit_id'=>(int)$uid,'guests'=>1,'created_at'=>current_time('mysql')
+                ])!==1){
+                    $wpdb->query('ROLLBACK');
+                    return new WP_Error('assignment_write_failed','Could not assign a room or bed. Previous booking preserved.',['status'=>500]);
+                }
+            }
+            foreach(array_diff($old_ids,$unit_ids) as $uid){
+                if($wpdb->delete($t['reservation_units'],['reservation_id'=>$id,'unit_id'=>(int)$uid])===false){
+                    $wpdb->query('ROLLBACK');
+                    return new WP_Error('assignment_write_failed','Could not change a room or bed. Previous booking preserved.',['status'=>500]);
+                }
+            }
             if(!empty($existing['group']['is_group'])){
                 $members=$wpdb->get_results($wpdb->prepare("SELECT id FROM {$t['reservation_guests']} WHERE reservation_id=%d ORDER BY CASE WHEN role='lead' THEN 0 ELSE 1 END,id",$id),ARRAY_A);
+                if(!is_array($members)){ $wpdb->query('ROLLBACK'); return new WP_Error('db_error','Group assignments could not be loaded.',['status'=>500]); }
                 $slots=self::group_slot_units($unit_ids,count($members));
-                foreach($members as $i=>$m) $wpdb->update($t['reservation_guests'],['unit_id'=>$slots[$i]??null,'updated_at'=>current_time('mysql')],['id'=>(int)$m['id']]);
+                foreach($members as $i=>$m){
+                    if($wpdb->update($t['reservation_guests'],['unit_id'=>$slots[$i]??null,'updated_at'=>current_time('mysql')],['id'=>(int)$m['id']])===false){
+                        $wpdb->query('ROLLBACK');
+                        return new WP_Error('assignment_write_failed','Group assignments were not saved.',['status'=>500]);
+                    }
+                }
                 self::recount_group_assignment_counts($id);
             }
+        }
+        if($wpdb->query('COMMIT')===false){
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('db_commit_failed','Could not safely commit the booking edit.',['status'=>500]);
         }
         StayCore_DB::log('reservation_updated','reservation',$id,'Reservation details updated.',['unit_ids'=>$unit_ids]); StayCore_Integrations::emit('reservation_updated',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
         return rest_ensure_response(self::reservation_row($id));
