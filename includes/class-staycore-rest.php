@@ -1640,6 +1640,8 @@ final class StayCore_REST {
         if(strlen($normalized_id)<4 || strlen($normalized_id)>40) return new WP_Error('id_required','Enter a valid ID number.',['status'=>400]);
         if($id_type==='Aadhaar' && !preg_match('/^\\d{12}$/',$normalized_id)) return new WP_Error('id_required','Aadhaar number must contain 12 digits.',['status'=>400]);
 
+        $safe=StayCore_Data_Safety::safeguard($id,'before_self_checkin');
+        if(is_wp_error($safe)) return $safe;
         $guest_id=(int)$row['guest_id'];
         $guest_meta=self::guest_meta($guest_id);
         if(!empty($p['id_image_data'])){
