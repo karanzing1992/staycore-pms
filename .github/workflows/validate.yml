@@ -33,3 +33,5 @@ jobs:
         run: node --check admin/assets/app.js
       - name: Frontend checkout contract
         run: node tests/frontend-contract.cjs
+      - name: Frontend extension contract
+        run: node tests/extend-ui-contract.cjs
