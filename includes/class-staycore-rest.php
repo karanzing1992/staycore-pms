@@ -1438,11 +1438,20 @@ final class StayCore_REST {
         $arrival=self::local_datetime((string)$r['check_in']);
         if($arrival && $arrival<=current_datetime() && $target['housekeeping_status']!=='clean') return new WP_Error('unit_not_ready',$target['name'].' is vacant but not ready. Confirm cleaning with housekeeping before assigning.',['status'=>409,'unit_id'=>$to,'housekeeping_status'=>$target['housekeeping_status']]);
         if(self::active_overlap($to,$r['check_in'],$r['check_out'],$id)) return new WP_Error('unit_unavailable',$target['name'].' is unavailable for those dates.',['status'=>409]);
+        if($wpdb->query('START TRANSACTION')===false) return new WP_Error('db_transaction_failed','Could not safely move the booking.',['status'=>503]);
         $safe=StayCore_Data_Safety::safeguard($id,'before_unit_move');
-        if(is_wp_error($safe)) return $safe;
-        $wpdb->update($t['reservation_units'],['unit_id'=>$to],['reservation_id'=>$id,'unit_id'=>$from]); if((int)$r['unit_id']===$from) $wpdb->update($t['reservations'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['id'=>$id]);
-        $wpdb->update($t['reservation_guests'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['reservation_id'=>$id,'unit_id'=>$from]);
+        if(is_wp_error($safe)){ $wpdb->query('ROLLBACK'); return $safe; }
+        if($wpdb->update($t['reservation_units'],['unit_id'=>$to],['reservation_id'=>$id,'unit_id'=>$from])!==1){
+            $wpdb->query('ROLLBACK'); return new WP_Error('move_failed','Room move failed; previous assignment preserved.',['status'=>409]);
+        }
+        if((int)$r['unit_id']===$from && $wpdb->update($t['reservations'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['id'=>$id])===false){
+            $wpdb->query('ROLLBACK'); return new WP_Error('move_failed','Room move failed; booking unchanged.',['status'=>500]);
+        }
+        if($wpdb->update($t['reservation_guests'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['reservation_id'=>$id,'unit_id'=>$from])===false){
+            $wpdb->query('ROLLBACK'); return new WP_Error('move_failed','Group room move failed; booking unchanged.',['status'=>500]);
+        }
         self::recount_group_assignment_counts($id);
+        if($wpdb->query('COMMIT')===false){$wpdb->query('ROLLBACK');return new WP_Error('db_commit_failed','Room move could not be committed.',['status'=>500]);}
         StayCore_DB::log('unit_moved','reservation',$id,'Guest moved to another room/bed.',['from_unit_id'=>$from,'to_unit_id'=>$to]); StayCore_Integrations::emit('reservation_unit_moved',['id'=>$id,'from_unit_id'=>$from,'to_unit_id'=>$to]);
         return rest_ensure_response(self::reservation_row($id));
     }
@@ -1471,28 +1480,36 @@ final class StayCore_REST {
                 return new WP_Error('payment_due','Collect the pending payment before checkout.',['status'=>409,'balance'=>$balance,'payment'=>$payment]);
             }
         }
+        if($wpdb->query('START TRANSACTION')===false) return new WP_Error('db_transaction_failed','Could not safely change booking status.',['status'=>503]);
         $safe=StayCore_Data_Safety::safeguard($id,'before_status_change');
-        if(is_wp_error($safe)) return $safe;
-        $wpdb->update($t['reservations'],['status'=>$status,'updated_at'=>$now],['id'=>$id]); if(!$wpdb->rows_affected) return new WP_Error('not_found','Reservation was not updated.',['status'=>404]);
+        if(is_wp_error($safe)){ $wpdb->query('ROLLBACK'); return $safe; }
+        $updated=$wpdb->update($t['reservations'],['status'=>$status,'updated_at'=>$now],['id'=>$id]);
+        if($updated===false || $updated===0){ $wpdb->query('ROLLBACK'); return new WP_Error('status_write_failed','Booking status was not changed.',['status'=>409]); }
         if($status==='checked_out'){
             foreach($assign as $a){
                 $uid=(int)$a['unit_id'];
-                $wpdb->update($t['units'],['housekeeping_status'=>'dirty','updated_at'=>$now],['id'=>$uid]);
+                if($wpdb->update($t['units'],['housekeeping_status'=>'dirty','updated_at'=>$now],['id'=>$uid])===false){
+                    $wpdb->query('ROLLBACK'); return new WP_Error('checkout_write_failed','Housekeeping could not be updated; checkout was not saved.',['status'=>500]);
+                }
                 $open=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['tasks']} WHERE unit_id=%d AND type='housekeeping' AND status IN ('open','in_progress') LIMIT 1",$uid));
-                if(!$open) $wpdb->insert($t['tasks'],['unit_id'=>$uid,'reservation_id'=>$id,'type'=>'housekeeping','title'=>'Clean '.$a['name'],'status'=>'open','priority'=>'normal','due_at'=>$now,'created_at'=>$now,'updated_at'=>$now]);
+                if(!$open && $wpdb->insert($t['tasks'],['unit_id'=>$uid,'reservation_id'=>$id,'type'=>'housekeeping','title'=>'Clean '.$a['name'],'status'=>'open','priority'=>'normal','due_at'=>$now,'created_at'=>$now,'updated_at'=>$now])!==1){
+                    $wpdb->query('ROLLBACK'); return new WP_Error('checkout_write_failed','Cleaning task could not be saved; checkout was not completed.',['status'=>500]);
+                }
             }
             StayCore_DB::log('housekeeping_required','reservation',$id,'Checkout completed; assigned room/bed marked for cleaning.');
         }
         $group=self::group_manifest($id);
         if(!empty($group['is_group'])){
             if($status==='checked_out'){
-                $wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status=CASE WHEN status='checked_in' THEN 'checked_out' ELSE 'no_show' END,updated_at=%s WHERE reservation_id=%d AND status IN ('pending','prechecked','checked_in')",$now,$id));
+                $group_write=$wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status=CASE WHEN status='checked_in' THEN 'checked_out' ELSE 'no_show' END,updated_at=%s WHERE reservation_id=%d AND status IN ('pending','prechecked','checked_in')",$now,$id));
             } elseif($status==='cancelled'){
-                $wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status='cancelled',updated_at=%s WHERE reservation_id=%d AND status NOT IN ('checked_out')",$now,$id));
+                $group_write=$wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status='cancelled',updated_at=%s WHERE reservation_id=%d AND status NOT IN ('checked_out')",$now,$id));
             } elseif($status==='no_show'){
-                $wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status='no_show',updated_at=%s WHERE reservation_id=%d AND status NOT IN ('checked_out')",$now,$id));
+                $group_write=$wpdb->query($wpdb->prepare("UPDATE {$t['reservation_guests']} SET status='no_show',updated_at=%s WHERE reservation_id=%d AND status NOT IN ('checked_out')",$now,$id));
             }
         }
+        if(isset($group_write) && $group_write===false){$wpdb->query('ROLLBACK');return new WP_Error('group_write_failed','Group status could not be saved; booking unchanged.',['status'=>500]);}
+        if($wpdb->query('COMMIT')===false){$wpdb->query('ROLLBACK');return new WP_Error('db_commit_failed','Booking status could not be committed.',['status'=>500]);}
         StayCore_DB::log('status_changed','reservation',$id,'Reservation status changed to '.$status.'.'); StayCore_Integrations::emit('reservation_status_changed',['id'=>$id,'status'=>$status]);
         return rest_ensure_response(self::reservation_row($id));
     }
