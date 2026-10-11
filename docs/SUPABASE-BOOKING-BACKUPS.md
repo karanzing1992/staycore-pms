@@ -148,6 +148,21 @@
 - The Opera native browser bridge cannot issue a Command+A shortcut or reliably select the entire Ace editor buffer on the user's Mac; it can paste and save after selection/focus. Live `public_html/staycore-stage/.htaccess` editor is open and ready. The final safe in-place replacement requires selection of all text inside Ace (Cmd+A, initiated manually unless a trusted keyboard-combo bridge capability is installed), then browser native paste of the prepared four directives, Save and immediate unauthenticated stage/production retest. **Do NOT rename away the existing guard first; that exposes unfinished WordPress installer.**
 - Rollback: if stage does not challenge with 401 or errors, restore the original staging-only `Require all denied` plus `RewriteRule ^ - [F,L]` immediately. Do not touch the main site's `.htaccess`; no staging DB or WordPress admin credentials were entered.
 
+## STACK CHANGE — Staging Basic Authentication staged live, challenge validation pending (2026-10-11)
+
+- **Verified saved in Hostinger File Browser:** `public_html/staycore-stage/.htaccess` is **156 B** (previous file 319 B), replaced through Opera after the operator selected the old text. Verified before Save via editor text and afterward via directory listing, recorded in Browser Agent jobs `andaz-stage-verify-pasted-auth-20261011-218`, `andaz-stage-save-live-basicauth-20261011-219`, `andaz-stage-auth-saved-filesize-afterload-20261011-223`. Four active nonsecret directives:
+  ```apache
+  AuthType Basic
+  AuthName "Andaz StayCore Staging"
+  AuthUserFile /home/u424614865/domains/mokshagoa.com/.andaz-stage-auth/andaz-stage-users
+  Require valid-user
+  ```
+- **Private credential file:** `/.andaz-stage-auth/andaz-stage-users`, 50 B, verified uploaded under File Browser account root outside `public_html`. Contents never read or exported.
+- **HTTP result unresolved:** Opera's staging tab initially retained an earlier `403 Forbidden` title, then content extraction yielded a browser `Frame with ID 0 is showing error page`. A separate unauthenticated external web fetch returned `target_unreachable` and no page body. This is **not sufficient to assert a 401 WWW-Authenticate challenge** or successful login. Do **not** call Basic Auth fully validated until an unauthenticated private window prompts for `stage_guard` and the operator confirms the password reaches the WP setup screen; verify an invalid password remains blocked. The absolute AuthUserFile path has not been server-side verified.
+- **Production isolation verified:** independent read-only WPVibe `site_info` successfully authenticated to `https://mokshagoa.com` after change, WordPress 7.1.2/PHP 8.2.34 unchanged. Independent external crawler also returned live homepage content. No production files/database/booking changes.
+- **Rollback, stage only:** If stage shows a 500 error or no authentication gate, replace only `public_html/staycore-stage/.htaccess` with `RewriteEngine On\nRewriteRule ^ - [F,L]` (or previously tested deny-all) and retest for 403. Never configure Hostinger protection for directory `/` again.
+- **Still pending:** staging private login positive/negative tests, initial WP configuration with separate `u424614865_andazqa` / `u424614865_staycoreqa`, backup vault first encrypted upload/readback, verified restore drill. The `.htaccess.authready` (156 B) is a leftover candidate in staging folder; clean up only after successful validation.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
