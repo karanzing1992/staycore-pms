@@ -101,6 +101,21 @@
 - No live PMS booking data/database edits, fresh WP installation completion, Supabase secret installation, encrypted backup upload, or restore drill were done in this recovery check.
 - Re-evaluate whether Hostinger's Protect Directories is relative to primary-site document root rather than subdomain. Prefer a site-specific staging `.htaccess` and an auth-user-file **outside webroot**, deployed **only in the staging folder**, if that can be implemented and tested safely. Do not apply a plan-wide or root-site configuration.
 
+## Pending staging .htaccess guard activation — 2026-10-11
+
+- Hostinger official docs confirmed `.htaccess` may be created **only** in the target subdirectory: https://www.hostinger.com/support/1583307-how-to-create-an-htaccess-file/ .
+- Used authenticated Opera File Browser `srv1669-files.hstgr.io` to create a NEW `.htaccess` under `public_html/staycore-stage/`, NOT live `public_html/`. Hostinger editor opens and Save button was pressed. Planned temporary gate content:
+  ```apache
+  # ANDAZ STAYCORE STAGING LOCKDOWN - staging directory only
+  # Temporary guard until isolated HTTP authentication is configured.
+  <IfModule mod_authz_core.c>
+  Require all denied
+  </IfModule>
+  ```
+- **CRITICAL: not active/verified.** Browser still successfully reached `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` (WordPress DB form) **after Save**. It is unknown whether the code was actually entered into the editor (Opera nativePaste targeted unfocused editor), or whether the LiteSpeed server ignored the conditional `<IfModule>` block. Do not claim staging is protected. The browser extension cannot currently focus the File Browser's code editor reliably.
+- Immediate next step: in Opera File Browser's OPEN `.htaccess` editor at `public_html > staycore-stage > .htaccess`, click directly into the code area and paste a guarded deny-all rule without conditional modules (`RewriteEngine On\nRewriteRule ^ - [F,L]`), press Save, test stage returns 403, and verify production WordPress remains accessible. An all-deny rule is TEMPORARY and MUST be replaced with valid staging-only HTTP Basic auth before any database credentials are entered or installation is resumed. Never edit the main site's `.htaccess`.
+- No fresh DB connection or WordPress install performed. Production WPVibe authenticated `site_info` still succeeds after the staging-only editor attempt with WP 7.1.2 and PHP 8.2.34.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
