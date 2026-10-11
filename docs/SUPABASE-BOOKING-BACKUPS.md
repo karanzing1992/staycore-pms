@@ -46,6 +46,16 @@
 - Hostinger File Manager hPanel route was opened by Opera, but the page rendered empty in the agent's DOM; don't claim successful staging file upload. Use the Hostinger UI File Manager button to open the full file manager in its proper tab, navigate only to `domains/mokshagoa.com/public_html/staycore-stage` and upload/extract the official WordPress 7.1.3 archive. Make sure files end up directly in the staging folder, not the parent `public_html` or nested `wordpress` folder.
 - The stage URL currently displays Hostinger's default placeholder; no WordPress staging installation has occurred. No private Supabase secret is installed on the WordPress host, and **off-site encrypted booking sync is NOT live**.
 
+## Latest staging provisioning check — October 11, 2026
+
+- Verified Hostinger dashboard production runtime still reports PHP **8.2**; production WordPress **7.1.2**. No automatic installer deployment or runtime upgrade.
+- Confirmed **only one** existing MySQL database (`u424614865_8dTmk`, ~515MB) after attempted staging database creation; the new `andazqa` database **does not yet exist**. Database suffix and user suffix were filled in the form, but the Create attempt did not provision a database without a server-side password. **Do not claim it exists until it is visible as a second database.**
+- Hostinger's credential generator could not be activated reliably through the Opera bridge (browser extension timeouts). Operator must enter a new unique credential locally and use Create, then verify the second database; never send credential through a task, repo or chat.
+- Official WordPress release: **7.1.3** (October 6, 2026) at https://wordpress.org/download/releases/ ; direct package https://wordpress.org/wordpress-7.1.3.zip .
+- Hostinger's authenticated File Manager `Open` button was clicked from the website dashboard; no accessible second File Manager tab appeared in the Opera bridge. **No WordPress package was uploaded to staging.** Hostinger docs: https://www.hostinger.com/support/4548688-basic-actions-in-the-file-manager-in-hostinger/ .
+- Manual install acceptance: only `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage` receives official WordPress core (and empty fixture content); never overwrite production `public_html`. Select a NEW MySQL database; keep hosting PHP 8.2. Protect staging and block external integrations.
+- Backup Supabase project `zwymapyqltevaaxdqqeu` and private bucket `andaz-pms-private` are already provisioned, but no server secret has been configured and no real encrypted transfer/recovery test has succeeded.
+ 
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
