@@ -103,6 +103,44 @@ final class StayCore_Private_Backups {
         return true;
     }
 
+    /**
+     * Read an encrypted file for a staging recovery. This does not modify a
+     * database. Only server-side tools should call it; never expose the
+     * archive contents through a public route.
+     */
+    public static function read(int $booking, string $basename): ?array {
+        if($booking<1 || !preg_match('/^booking-'.preg_quote((string)$booking,'/').'-[a-f0-9]{32}\\.scbackup$/D',$basename)) return null;
+        $root=self::root();
+        if($root===null) return null;
+        $file=$root.'/'.$basename;
+        if(is_link($file) || !is_file($file) || filesize($file)>10485760) return null;
+        $raw=@file_get_contents($file);
+        $envelope=is_string($raw)?json_decode($raw,true):null;
+        if(!is_array($envelope) || (int)($envelope['reservation_id']??0)!==$booking) return null;
+        $key=self::key($root);
+        if($key===null) return null;
+        $payload=self::decrypt($envelope,$key);
+        $data=is_string($payload)?json_decode($payload,true):null;
+        if(!is_array($data) || (int)($data['schema_version']??0)!==1 ||
+            (int)($data['reservation']['id']??0)!==$booking) return null;
+        return $data;
+    }
+
+    /** Returns filenames only, never backup contents or key material. */
+    public static function files(int $booking): array {
+        if($booking<1) return [];
+        $root=self::root();
+        if($root===null) return [];
+        $found=glob($root.'/booking-'.$booking.'-*.scbackup');
+        if(!is_array($found)) return [];
+        $valid=[];
+        foreach($found as $path){
+            $name=basename($path);
+            if(preg_match('/^booking-'.preg_quote((string)$booking,'/').'-[a-f0-9]{32}\\.scbackup$/D',$name)) $valid[]=$name;
+        }
+        return array_slice($valid,-200);
+    }
+
     private static function decrypt(array $envelope,string $key): ?string {
         if (($envelope['format']??'')!=='staycore-booking-v1') return null;
         $nonce=base64_decode((string)($envelope['nonce']??''),true);
