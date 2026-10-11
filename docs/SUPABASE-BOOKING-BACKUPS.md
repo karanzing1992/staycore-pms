@@ -1,12 +1,23 @@
 # Andaz StayCore → Supabase Storage: private encrypted offsite backups
 
-**Code status:** Draft v0.8.7 (stacked on encrypted on-save booking safeguards v0.8.6). GitHub validation uses a mocked Supabase HTTPS server; **no bucket, real cloud upload or staging restore was performed** by this code change. Production remains on StayCore v0.8.1 until an approved release.
+**Code status:** Draft v0.8.7 (stacked on encrypted on-save booking safeguards v0.8.6). GitHub validation uses a mocked Supabase HTTPS server; the **separate Supabase project and private bucket were created on 2026-10-11**, but no real encrypted cloud upload or staging restore was performed. Production remains on StayCore v0.8.1 until an approved release.
+
+## Actual provisioned Supabase resources (verified 2026-10-11)
+
+- Organization: `karanzing1992's Org` (ID `nustutyfswtkmljhnked`)
+- Dedicated project: `andaz-pms-backup-vault`, ref **`zwymapyqltevaaxdqqeu`**, region **`ap-south-1`** (Mumbai), **ACTIVE_HEALTHY**, quoted project cost **$0/month** on Free.
+- API URL (non-secret): **https://zwymapyqltevaaxdqqeu.supabase.co**
+- Private Storage bucket: **`andaz-pms-private`**, `public=false`, file size limit **10,485,760 bytes**, MIME type `application/octet-stream`.
+- Confirmed **zero objects** and **no storage.object or storage.bucket RLS policies** that would expose guest files to ordinary users. Security advisor: **zero findings** on initial review.
+- **Not yet configured:** A server-only project secret key, secure recovery passphrase, Hostinger private filesystem path, staging WordPress, real encrypted upload/restore or production release.
+- Open the dedicated project's keys page: https://supabase.com/dashboard/project/zwymapyqltevaaxdqqeu/settings/api-keys . Create a NEW secret key in the dashboard, do **not** copy the secret into ChatGPT/GitHub. Record it in the staging server's private `wp-config.php`, along with a separately stored 24+ character recovery passphrase. Verify the live Supabase REST transport before activating on production.
+
 
 ## Project isolation and pricing
 
-**Do not use existing `constituency-ops-v1` for guest data.** As of October 11, 2026 the ChatGPT Supabase connector sees one organization `karanzing1992's Org` with one active Free project; a **new project in the existing organization is quoted at $0/month**. Creating the new project requires choosing the organization and confirming cost in the Supabase tool.
+**Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
 
-Create a separate dedicated **`andaz-pms-backup-vault`** Supabase project in `ap-south-1` (Mumbai). On the Free plan a project may be paused after around seven days of low database activity, and no service-level guaranteed availability is provided. This means the durable local upload queue is essential, with alerts, daily independent verification and optional paid upgrade if high reliability is required. Supabase has no equivalent to Cloudflare R2 bucket-lock retention in this design; API access with a project secret can delete objects. Do not promise tamper-proof/WORM retention.
+The dedicated **`andaz-pms-backup-vault`** Supabase project has been created in `ap-south-1` (Mumbai). On the Free plan a project may be paused after around seven days of low database activity, and no service-level guaranteed availability is provided. This means the durable local upload queue is essential, with alerts, daily independent verification and optional paid upgrade if high reliability is required. Supabase has no equivalent to Cloudflare R2 bucket-lock retention in this design; API access with a project secret can delete objects. Do not promise tamper-proof/WORM retention.
 
 Supabase official docs:
 - https://supabase.com/docs/guides/storage/security/access-control
@@ -17,7 +28,7 @@ Supabase official docs:
 
 ## One-time Storage setup
 
-1. In dedicated Supabase project, open **Storage → New bucket**, name **`andaz-pms-private`**, set **Private**. Do not allow public asset URLs or policies granting `anon` or `authenticated` access.
+1. **Completed 2026-10-11:** Dedicated private Storage bucket **`andaz-pms-private`** created with a 10 MB binary-file limit; no public asset URLs or user-facing Storage policies. Do not later make the bucket public or grant `anon`/`authenticated` access.
 2. **Project Settings → API Keys:** create a separate **secret key** for the WordPress server (format `sb_secret_...`). NEVER use a publishable/anon key to bypass policies and never display the secret in chat, GitHub, logs or browser JS. The secret key bypasses RLS for the ENTIRE dedicated project; it is not bucket scoped. The dedicated project is therefore a hard access boundary.
 3. Do not grant Storage object DELETE or UPDATE policies to ordinary users. The WordPress connector itself only uses POST without upsert and GET to verify backups, and implements no remote delete, but a stolen project secret can still alter data. Rotate compromised keys immediately.
 4. In `wp-config.php`, **outside GitHub**, configure the *actual* dedicated project and private local path:
@@ -25,7 +36,7 @@ Supabase official docs:
 ```php
 define('STAYCORE_PRIVATE_BACKUP_DIR', '/real/private/hostinger/path/staycore-vault');
 define('STAYCORE_SUPABASE_ENABLED', true);
-define('STAYCORE_SUPABASE_PROJECT_REF', 'YOUR_20_CHARACTER_PROJECT_REF');
+define('STAYCORE_SUPABASE_PROJECT_REF', 'zwymapyqltevaaxdqqeu');
 define('STAYCORE_SUPABASE_BUCKET', 'andaz-pms-private');
 define('STAYCORE_SUPABASE_SECRET_KEY', 'sb_secret_REPLACE_SECURELY');
 define('STAYCORE_SUPABASE_RECOVERY_PASSPHRASE', 'YOUR_24_PLUS_CHARACTER_RECOVERY_PASSPHRASE');
