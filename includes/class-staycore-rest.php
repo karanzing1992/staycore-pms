@@ -1387,9 +1387,14 @@ final class StayCore_REST {
         ];
         StayCore_DB::log('booking_extended','reservation',$id,'Stay extended by '.$quote['nights'].' night(s).',$details);
         StayCore_Integrations::emit('reservation_extended',['reservation_id'=>$id]+$details);
-        $result=self::reservation_row($id);
-        $result['extension']=$details;
-        return rest_ensure_response(self::redact_reservation_for_current_user($result));
+        return rest_ensure_response([
+            'id'=>$id,
+            'status'=>$row['status'],
+            'check_out'=>$quote['new_checkout'],
+            'total'=>$new_total,
+            'payment'=>self::payment_summary($id),
+            'extension'=>$details,
+        ]);
     }
 
     public static function update_reservation(WP_REST_Request $request) {
