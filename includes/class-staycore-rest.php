@@ -501,13 +501,12 @@ final class StayCore_REST {
     }
 
     private static function public_link_expired(array $row,string $kind): bool {
-        $now=current_time('timestamp');
-        if($kind==='checkin'){
-            $expires=strtotime((string)$row['check_out'].' +1 day');
-            return $expires!==false && $now>$expires;
-        }
-        $expires=strtotime((string)$row['check_out'].' +30 days');
-        return $expires!==false && $now>$expires;
+        // WordPress stores reservation dates in the site's timezone. Comparing
+        // current_time('timestamp') to strtotime() mixes adjusted and UTC timestamps.
+        $checkout=self::local_datetime((string)($row['check_out']??''));
+        if(!$checkout) return true;
+        $deadline=$checkout->modify($kind==='checkin'?'+1 day':'+30 days');
+        return current_datetime()>$deadline;
     }
 
     private static function active_overlap(int $unit_id,string $check_in,string $check_out,int $exclude=0): int {
@@ -1333,9 +1332,17 @@ final class StayCore_REST {
     public static function move_unit(WP_REST_Request $request) {
         global $wpdb; $t=StayCore_DB::tables(); $id=absint($request['id']); $p=$request->get_json_params(); $from=absint($p['from_unit_id']??0); $to=absint($p['to_unit_id']??0);
         $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['reservations']} WHERE id=%d",$id),ARRAY_A); if(!$r) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+        if(!in_array($r['status'],['confirmed','checked_in'],true)) return new WP_Error('booking_closed','Only active bookings can be moved.',['status'=>409]);
         $mapped=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['reservation_units']} WHERE reservation_id=%d AND unit_id=%d",$id,$from)); if(!$mapped) return new WP_Error('not_assigned','Source unit is not assigned to this booking.',['status'=>400]);
+        if($from===$to) return rest_ensure_response(self::reservation_row($id));
         $target=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['units']} WHERE id=%d",$to),ARRAY_A); if(!$target) return new WP_Error('unit_not_found','Destination unit not found.',['status'=>404]);
-        if(strtotime($r['check_in'])<=current_time('timestamp') && $target['housekeeping_status']!=='clean') return new WP_Error('unit_not_ready',$target['name'].' is vacant but not ready. Confirm cleaning with housekeeping before assigning.',['status'=>409,'unit_id'=>$to,'housekeeping_status'=>$target['housekeeping_status']]);
+        if($target['status']!=='available') return new WP_Error('unit_unavailable',$target['name'].' is out of service.',['status'=>409]);
+        $already_assigned=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['reservation_units']} WHERE reservation_id=%d AND unit_id=%d",$id,$to));
+        if($already_assigned) return new WP_Error('unit_already_assigned','Destination is already assigned to this booking.',['status'=>409]);
+        $guest_count=(int)$wpdb->get_var($wpdb->prepare("SELECT guests FROM {$t['reservation_units']} WHERE reservation_id=%d AND unit_id=%d",$id,$from));
+        if($guest_count>max(1,(int)$target['capacity'])) return new WP_Error('capacity_exceeded','Destination unit cannot accommodate the assigned guests.',['status'=>409]);
+        $arrival=self::local_datetime((string)$r['check_in']);
+        if($arrival && $arrival<=current_datetime() && $target['housekeeping_status']!=='clean') return new WP_Error('unit_not_ready',$target['name'].' is vacant but not ready. Confirm cleaning with housekeeping before assigning.',['status'=>409,'unit_id'=>$to,'housekeeping_status'=>$target['housekeeping_status']]);
         if(self::active_overlap($to,$r['check_in'],$r['check_out'],$id)) return new WP_Error('unit_unavailable',$target['name'].' is unavailable for those dates.',['status'=>409]);
         $wpdb->update($t['reservation_units'],['unit_id'=>$to],['reservation_id'=>$id,'unit_id'=>$from]); if((int)$r['unit_id']===$from) $wpdb->update($t['reservations'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['id'=>$id]);
         $wpdb->update($t['reservation_guests'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['reservation_id'=>$id,'unit_id'=>$from]);
