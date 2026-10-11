@@ -106,7 +106,80 @@ final class StayCore_Private_Backups {
             @unlink($file);
             return false;
         }
+        // Local backup is durable; queue offsite synchronization separately.
+        // Cloud outages must not prevent recording a genuine booking.
+        if(class_exists('StayCore_R2_Offsite')) StayCore_R2_Offsite::schedule_soon();
         return true;
+    }
+
+    /** Internal vault location for offsite queue scanning; never return via REST. */
+    public static function vault_path(): ?string {
+        return self::root();
+    }
+
+    /**
+     * Encrypt the 32-byte recovery key with a user-held, independent passphrase.
+     * Store the wrapped envelope locally so subsequent syncs use an immutable
+     * object name. The passphrase must also be stored OUTSIDE the server.
+     */
+    public static function wrapped_recovery_key(string $passphrase): ?string {
+        if(strlen($passphrase)<24 || !function_exists('openssl_encrypt')) return null;
+        $root=self::root();
+        if($root===null) return null;
+        $key=self::key($root);
+        if($key===null) return null;
+        $file=$root.'/recovery-key-wrapped-v1.json';
+        if(is_link($file)) return null;
+        if(is_file($file)){
+            $stored=@file_get_contents($file);
+            if(!is_string($stored)) return null;
+            $unwrapped=self::unwrap_recovery_key($stored,$passphrase);
+            return $unwrapped!==null && hash_equals($key,$unwrapped)?$stored:null;
+        }
+        try {
+            $salt=random_bytes(16);
+            $nonce=random_bytes(12);
+        } catch(Throwable $e){return null;}
+        $iterations=210000;
+        $wrap=hash_pbkdf2('sha256',$passphrase,$salt,$iterations,32,true);
+        $cipher=openssl_encrypt($key,'aes-256-gcm',$wrap,OPENSSL_RAW_DATA,$nonce,$tag,'staycore:vault-key:v1',16);
+        if(!is_string($cipher) || strlen($tag)!==16) return null;
+        $envelope=wp_json_encode([
+            'format'=>'staycore-recovery-key-v1',
+            'kdf'=>'pbkdf2-sha256','iterations'=>$iterations,
+            'salt'=>base64_encode($salt),'nonce'=>base64_encode($nonce),
+            'tag'=>base64_encode($tag),'ciphertext'=>base64_encode($cipher),
+        ]);
+        if(!is_string($envelope)) return null;
+        $h=@fopen($file,'x');
+        if($h===false){
+            $existing=@file_get_contents($file);
+            return is_string($existing) && hash_equals($key,(string)self::unwrap_recovery_key($existing,$passphrase))?$existing:null;
+        }
+        @chmod($file,0600);
+        $saved=@fwrite($h,$envelope);
+        @fflush($h);
+        fclose($h);
+        if($saved!==strlen($envelope)){@unlink($file);return null;}
+        return $envelope;
+    }
+
+    public static function unwrap_recovery_key(string $envelope,string $passphrase): ?string {
+        $data=json_decode($envelope,true);
+        if(!is_array($data) || ($data['format']??'')!=='staycore-recovery-key-v1' ||
+            ($data['kdf']??'')!=='pbkdf2-sha256' ||
+            (int)($data['iterations']??0)!==210000) return null;
+        $salt=base64_decode((string)($data['salt']??''),true);
+        $nonce=base64_decode((string)($data['nonce']??''),true);
+        $tag=base64_decode((string)($data['tag']??''),true);
+        $cipher=base64_decode((string)($data['ciphertext']??''),true);
+        if(!is_string($salt)||strlen($salt)!==16 ||
+            !is_string($nonce)||strlen($nonce)!==12 ||
+            !is_string($tag)||strlen($tag)!==16 ||
+            !is_string($cipher)||strlen($cipher)<16) return null;
+        $wrap=hash_pbkdf2('sha256',$passphrase,$salt,210000,32,true);
+        $key=openssl_decrypt($cipher,'aes-256-gcm',$wrap,OPENSSL_RAW_DATA,$nonce,$tag,'staycore:vault-key:v1');
+        return is_string($key)&&strlen($key)===32?$key:null;
     }
 
     /** Diagnostics only: never reveal encryption keys or backup file names. */

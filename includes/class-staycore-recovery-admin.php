@@ -314,7 +314,11 @@ final class StayCore_Recovery_Admin {
         $t=StayCore_DB::tables();
         echo '<div class="wrap"><h1>StayCore Booking Recovery</h1>';
         echo '<p>Administrator only. Preview is read-only. Payments, guest identity and group bookings are never overwritten.</p>';
+        $offsite=StayCore_R2_Offsite::status();
         $backup=StayCore_Private_Backups::status();
+        echo '<p><strong>Offsite Cloudflare R2:</strong> '.esc_html(!$offsite['enabled']?'Not enabled':(!$offsite['configured']?'Configuration incomplete':'Configured')).' · pending encrypted files: '.(int)$offsite['pending'].' · oldest pending (minutes): '.(int)ceil($offsite['oldest_pending_seconds']/60).' · last verified (UTC): '.esc_html($offsite['last_verified_at']?:'none').'</p>';
+        if($offsite['enabled'] && (!$offsite['configured'] || $offsite['oldest_pending_seconds']>1800))
+            echo '<div class="notice notice-error"><p>Offsite backup delayed or misconfigured. Investigate before changing any storage settings or upgrading StayCore.</p></div>';
         if(!empty($backup['ready'])){
             echo '<div class="notice notice-success"><p><strong>Private booking backup vault is ready.</strong> Verify separate off-host copies of its key and encrypted files.</p></div>';
         } else {
