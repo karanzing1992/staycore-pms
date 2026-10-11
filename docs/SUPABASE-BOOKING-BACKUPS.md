@@ -56,6 +56,18 @@
 - Manual install acceptance: only `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage` receives official WordPress core (and empty fixture content); never overwrite production `public_html`. Select a NEW MySQL database; keep hosting PHP 8.2. Protect staging and block external integrations.
 - Backup Supabase project `zwymapyqltevaaxdqqeu` and private bucket `andaz-pms-private` are already provisioned, but no server secret has been configured and no real encrypted transfer/recovery test has succeeded.
  
+## Live Hostinger staging progress — 2026-10-11: verified new DB and file root
+
+- **SUCCESS:** A second, independent Hostinger MySQL database was created and confirmed in hPanel:
+  - **DB name**: `u424614865_andazqa` (~1 MB at creation)
+  - **New DB user**: `u424614865_staycoreqa` (different suffix from database; intentional)
+  - Private password was entered via Hostinger's browser UI, **not added to ChatGPT or GitHub**. Retain in operator's local password manager for manual WordPress setup.
+  - Existing production DB **`u424614865_8dTmk`** remained listed at ~515 MB and was not modified.
+- **SUCCESS:** Found existing Hostinger File Browser tab in Opera (`srv1669-files.hstgr.io`) and navigated **read-only** from its account file root to `public_html/staycore-stage`. Confirmed only existing file `default.php` (~15.99 KiB) in the staging folder; root `public_html` retains the live WordPress files. **Never upload WordPress ZIP at the parent `public_html` level.**
+- **Initiated** official WordPress 7.1.3 archive download in Opera: `https://wordpress.org/wordpress-7.1.3.zip`; not yet verified to exist on Mac in Downloads. Official release verified at https://wordpress.org/download/releases/ .
+- File Browser `Upload` menu opened and `File` control clicked, but the Opera agent timed out as the native file chooser was requested. **No upload or extraction confirmed.** User must select `wordpress-7.1.3.zip` in File Browser while breadcrumb reads `public_html > staycore-stage`, then verify ZIP appears in that folder. The official ZIP contains a top-level `wordpress/` directory; move its contents into the staging document root rather than leaving a nested `staycore-stage/wordpress` install.
+- WordPress is **not installed** on staging yet, and real encrypted Supabase upload/readback and recovery drill have **not happened**. Do not change hosting-wide PHP from 8.2, import live booking rows, expose secrets, or deploy production changes.
+
 ## Project isolation and pricing
 
 **Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
