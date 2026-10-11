@@ -13,6 +13,9 @@ $GLOBALS['staycore_test_now'] = new DateTimeImmutable('2026-10-02 10:59:59', new
 function wp_timezone(): DateTimeZone { return new DateTimeZone('Asia/Kolkata'); }
 function current_datetime(): DateTimeImmutable { return $GLOBALS['staycore_test_now']; }
 function absint($v): int { return abs((int) $v); }
+function current_time(string $format): string { return current_datetime()->format($format === 'mysql' ? 'Y-m-d H:i:s' : $format); }
+function apply_filters(string $name, mixed $value): mixed { return $value; }
+function sanitize_key(string $value): string { return strtolower(preg_replace('/[^a-z0-9_-]/i', '', $value)); }
 
 class WP_Error {
     private string $code;
@@ -92,6 +95,8 @@ check($expires->invoke(null, ['check_out' => 'invalid'], 'feedback') === true, '
 
 global $wpdb;
 $wpdb = new FakeWPDB();
+$bad_initial = StayCore_REST::create_reservation(new WP_REST_Request([], ['status' => 'checked_out']));
+check($bad_initial instanceof WP_Error && $bad_initial->get_error_code() === 'bad_initial_status', 'New bookings cannot skip validated check-in and checkout transitions');
 $move = new WP_REST_Request(['id' => 12], ['from_unit_id' => 1, 'to_unit_id' => 2]);
 
 $wpdb->reservation_status = 'checked_out';
