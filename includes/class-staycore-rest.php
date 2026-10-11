@@ -1300,6 +1300,16 @@ final class StayCore_REST {
             self::merge_guest_meta($guest_id,['id_image'=>$pending_id_image]);
             StayCore_DB::log('guest_id_uploaded','guest',$guest_id,'Guest ID image saved during booking creation.',['reservation_id'=>$id,'capture_method'=>$method]);
         }
+        if(!StayCore_Data_Safety::snapshot_reservation($id,'after_creation')){
+            error_log('StayCore: booking #'.$id.' was created but its safety revision failed. Do not re-enter the booking.');
+            // The booking already exists: reporting an error would tempt staff
+            // to create a duplicate. Return its ID and an explicit warning.
+            $saved=self::reservation_row($id);
+            if(is_array($saved)){
+                $saved['data_protection_warning']='Booking saved but safety revision failed. Notify a manager; do not repeat this booking.';
+                return rest_ensure_response($saved);
+            }
+        }
         StayCore_DB::log('reservation_created','reservation',$id,$group_booking?'Group reservation created.':'Reservation created.',['unit_ids'=>$unit_ids,'auto_assigned'=>$auto_assign,'stay_type'=>$stay_type,'returning_guest'=>(bool)$existing,'group_booking'=>$group_booking,'group_size'=>$group_booking?$group_size:1]);
         StayCore_Integrations::emit('reservation_created',['id'=>$id]+$data+['unit_ids'=>$unit_ids]);
         return rest_ensure_response(self::reservation_row($id));
@@ -1385,6 +1395,8 @@ final class StayCore_REST {
         $arrival=self::local_datetime((string)$r['check_in']);
         if($arrival && $arrival<=current_datetime() && $target['housekeeping_status']!=='clean') return new WP_Error('unit_not_ready',$target['name'].' is vacant but not ready. Confirm cleaning with housekeeping before assigning.',['status'=>409,'unit_id'=>$to,'housekeeping_status'=>$target['housekeeping_status']]);
         if(self::active_overlap($to,$r['check_in'],$r['check_out'],$id)) return new WP_Error('unit_unavailable',$target['name'].' is unavailable for those dates.',['status'=>409]);
+        $safe=StayCore_Data_Safety::safeguard($id,'before_unit_move');
+        if(is_wp_error($safe)) return $safe;
         $wpdb->update($t['reservation_units'],['unit_id'=>$to],['reservation_id'=>$id,'unit_id'=>$from]); if((int)$r['unit_id']===$from) $wpdb->update($t['reservations'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['id'=>$id]);
         $wpdb->update($t['reservation_guests'],['unit_id'=>$to,'updated_at'=>current_time('mysql')],['reservation_id'=>$id,'unit_id'=>$from]);
         self::recount_group_assignment_counts($id);
@@ -1416,6 +1428,8 @@ final class StayCore_REST {
                 return new WP_Error('payment_due','Collect the pending payment before checkout.',['status'=>409,'balance'=>$balance,'payment'=>$payment]);
             }
         }
+        $safe=StayCore_Data_Safety::safeguard($id,'before_status_change');
+        if(is_wp_error($safe)) return $safe;
         $wpdb->update($t['reservations'],['status'=>$status,'updated_at'=>$now],['id'=>$id]); if(!$wpdb->rows_affected) return new WP_Error('not_found','Reservation was not updated.',['status'=>404]);
         if($status==='checked_out'){
             foreach($assign as $a){
@@ -1450,6 +1464,8 @@ final class StayCore_REST {
         if($amount<=0) return new WP_Error('bad_amount','Payment amount must be greater than zero.',['status'=>400]);
         if(!(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t['reservations']} WHERE id=%d",$id))) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
         $data=['reservation_id'=>$id,'amount'=>$amount,'currency'=>strtoupper(sanitize_text_field($p['currency']??'INR')),'method'=>sanitize_key($p['method']??'cash'),'status'=>sanitize_key($p['status']??'captured'),'external_ref'=>sanitize_text_field($p['external_ref']??''),'meta'=>!empty($p['notes'])?wp_json_encode(['notes'=>sanitize_textarea_field($p['notes'])]):null,'paid_at'=>sanitize_text_field($p['paid_at']??current_time('mysql')),'created_at'=>current_time('mysql')];
+        $safe=StayCore_Data_Safety::safeguard($id,'before_payment');
+        if(is_wp_error($safe)) return $safe;
         $wpdb->insert($t['payments'],$data); if(!$wpdb->insert_id) return new WP_Error('db_error','Could not record payment.',['status'=>500]);
         StayCore_DB::log('payment_recorded','reservation',$id,'Payment recorded.',['payment_id'=>(int)$wpdb->insert_id,'amount'=>$amount,'method'=>$data['method']]); StayCore_Integrations::emit('payment_recorded',['id'=>(int)$wpdb->insert_id]+$data);
         return rest_ensure_response(['id'=>(int)$wpdb->insert_id,'summary'=>self::payment_summary($id)]);
