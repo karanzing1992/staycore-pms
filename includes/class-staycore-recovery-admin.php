@@ -19,6 +19,7 @@ final class StayCore_Recovery_Admin {
     public static function boot(): void {
         add_action('admin_menu',[__CLASS__,'menu']);
         add_action('admin_post_staycore_recovery_preview',[__CLASS__,'preview_post']);
+        add_action('admin_post_staycore_recovery_checkpoint',[__CLASS__,'checkpoint_post']);
         add_action('admin_post_staycore_recovery_apply',[__CLASS__,'apply_post']);
     }
 
@@ -245,6 +246,21 @@ final class StayCore_Recovery_Admin {
         return ['booking_id'=>$booking,'revision_id'=>$revision,'restored'=>true];
     }
 
+    public static function checkpoint_post(): void {
+        if(!self::allowed()) self::deny();
+        check_admin_referer('staycore_recovery_checkpoint');
+        $result=StayCore_Data_Safety::checkpoint(true);
+        StayCore_DB::log('admin_backup_checkpoint','reservation',null,
+            'Administrator created an on-demand booking checkpoint.',
+            ['total'=>(int)$result['total'],'archived'=>(int)$result['archived'],'failed'=>(int)$result['failed']]);
+        wp_safe_redirect(add_query_arg([
+            'page'=>'staycore-booking-recovery',
+            'checkpoint'=>$result['failed']?'failed':'complete',
+            'archived'=>(int)$result['archived'],
+        ],admin_url('tools.php')));
+        exit;
+    }
+
     public static function preview_post(): void {
         if(!self::allowed()) self::deny();
         check_admin_referer('staycore_recovery_preview');
@@ -302,6 +318,10 @@ final class StayCore_Recovery_Admin {
             echo '<div class="notice notice-warning"><p><strong>Restoration is disabled.</strong> Enable only after staging restore testing and a verified independent backup.</p></div>';
         }
         if(isset($_GET['restored'])) echo '<div class="notice notice-success"><p>Audited booking recovery committed. Review the new booking history.</p></div>';
+        if(isset($_GET['checkpoint'])) echo '<div class="notice notice-'.($_GET['checkpoint']==='complete'?'success':'error').'"><p>'.($_GET['checkpoint']==='complete'?'Private booking checkpoint completed.':'Checkpoint failed for one or more bookings; investigate immediately.').' Archived: '.(int)($_GET['archived']??0).'</p></div>';
+        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="staycore_recovery_checkpoint">';
+        wp_nonce_field('staycore_recovery_checkpoint');
+        echo '<p><button type="submit" class="button">Create encrypted checkpoint of every current booking</button></p></form>';
         $booking=absint($_GET['booking_id']??0);
         echo '<form method="get" action="'.esc_url(admin_url('tools.php')).'"><input type="hidden" name="page" value="staycore-booking-recovery"><label>Booking ID <input type="number" name="booking_id" min="1" value="'.esc_attr((string)$booking).'"></label> <button class="button">Find revisions</button></form>';
         if($booking){
