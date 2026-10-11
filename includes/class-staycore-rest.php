@@ -1415,6 +1415,12 @@ final class StayCore_REST {
                 self::recount_group_assignment_counts($id);
             }
         }
+        // Keep a protected copy of the newly SAVED state as well as the
+        // pre-change revision. If it fails, cancel the entire edit.
+        if(!StayCore_Data_Safety::snapshot_reservation($id,'after_reservation_update')){
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('booking_snapshot_failed','Updated booking backup failed; original booking preserved.',['status'=>503]);
+        }
         if($wpdb->query('COMMIT')===false){
             $wpdb->query('ROLLBACK');
             return new WP_Error('db_commit_failed','Could not safely commit the booking edit.',['status'=>500]);
