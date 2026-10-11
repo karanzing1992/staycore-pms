@@ -50,6 +50,12 @@ final class StayCore_Recovery_Admin {
         if(!preg_match('/^[a-f0-9]{64}$/D',$hash) || !hash_equals($hash,hash('sha256',$json))){
             return new WP_Error('revision_corrupt','Revision checksum verification failed.',['status'=>409]);
         }
+        // A SQL checksum alone is not trustworthy against SQL tampering.
+        // The separate AES-GCM private vault must authenticate the exact
+        // recovery revision before it may be previewed or applied.
+        if(!StayCore_Private_Backups::attests($booking,$hash)){
+            return new WP_Error('backup_attestation_failed','Independent encrypted backup was not verified. Restore blocked.',['status'=>409]);
+        }
         $data=json_decode($json,true);
         if(!is_array($data) || (int)($data['schema_version']??0)!==1 ||
             (int)($data['reservation']['id']??0)!==$booking ||
