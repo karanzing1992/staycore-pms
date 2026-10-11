@@ -292,6 +292,12 @@ final class StayCore_Recovery_Admin {
         $t=StayCore_DB::tables();
         echo '<div class="wrap"><h1>StayCore Booking Recovery</h1>';
         echo '<p>Administrator only. Preview is read-only. Payments, guest identity and group bookings are never overwritten.</p>';
+        $backup=StayCore_Private_Backups::status();
+        if(!empty($backup['ready'])){
+            echo '<div class="notice notice-success"><p><strong>Private booking backup vault is ready.</strong> Verify separate off-host copies of its key and encrypted files.</p></div>';
+        } else {
+            echo '<div class="notice notice-error"><p><strong>Booking backup vault NOT READY.</strong> Writes are configured to fail closed rather than save unprotected bookings. Check a writable directory outside the public site and the server crypto extension.</p></div>';
+        }
         if(!defined('STAYCORE_RECOVERY_ENABLED') || STAYCORE_RECOVERY_ENABLED!==true){
             echo '<div class="notice notice-warning"><p><strong>Restoration is disabled.</strong> Enable only after staging restore testing and a verified independent backup.</p></div>';
         }
