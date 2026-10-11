@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('ABSPATH', __DIR__ . '/../');
-define('STAYCORE_PMS_VERSION', '0.8.2');
+define('STAYCORE_PMS_VERSION', '0.8.3');
 
 $GLOBALS['test_permissions'] = [];
 $GLOBALS['test_hooks'] = [];
@@ -41,7 +41,7 @@ check(count(array_filter($GLOBALS['test_hooks'], fn($name) => $name === 'staycor
 $manifest = [
     'name' => 'Payments & POS',
     'version' => '1.0.0',
-    'requires_core' => '0.8.2',
+    'requires_core' => '0.8.3',
     'permissions' => ['staycore_manage_payments'],
     'capabilities' => ['pos', 'payment_capture'],
     'api_secret' => 'MUST_NOT_BE_EXPOSED',
