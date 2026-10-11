@@ -320,7 +320,7 @@ if(extensionForm){
   e.preventDefault();
   const q=quote();if(!q){dateField.reportValidity();rateField.reportValidity();return}
   if(q.charge===0&&(!StayCorePMS.caps.manager||reasonField.value.trim().length<5)){alert('A manager and a documented reason are required for a complimentary extension.');return}
-  if(!window.confirm('Extend this booking by '+q.nights+' night(s)?\\nAdded charge: '+money(q.charge)+'\\nRevised balance: '+money(q.due)+'\\nThe guest can be notified after saving.'))return;
+  if(!window.confirm('Extend this booking by '+q.nights+' night(s)?\nAdded charge: '+money(q.charge)+'\nRevised balance: '+money(q.due)+'\nThe guest can be notified after saving.'))return;
   const btn=extensionForm.querySelector('button[type="submit"]');btn.disabled=true;btn.textContent='Checking availability…';
   try {
    const updated=await api('reservations/'+id+'/extend',{method:'POST',body:JSON.stringify({expected_check_out:r.check_out,expected_total:r.total,new_checkout_date:q.newDay,nightly_rate:rateField.value,reason:reasonField.value.trim()})});
@@ -328,7 +328,7 @@ if(extensionForm){
    const section=d.querySelector('.sc-extend-section');
    if(section){
     const done=document.createElement('div');done.className='sc-extend-confirm sc-self-checkin';
-    const message='Hi '+String(r.guest_name||'Guest').trim()+', your stay at Andaz Vibe Stay has been extended.\\nNew checkout: '+pretty(updated.check_out)+'\\nAdditional charge: '+money(q.charge)+'\\nUpdated booking total: '+money(updated.total)+'\\nBalance due: '+money(updated.payment?.balance||0)+'.\\nThank you!';
+    const message='Hi '+String(r.guest_name||'Guest').trim()+', your stay at Andaz Vibe Stay has been extended.\nNew checkout: '+pretty(updated.check_out)+'\nAdditional charge: '+money(q.charge)+'\nUpdated booking total: '+money(updated.total)+'\nBalance due: '+money(updated.payment?.balance||0)+'.\nThank you!';
     done.innerHTML='<div><strong>✓ Stay extended</strong><div class="sc-meta">New checkout '+esc(pretty(updated.check_out))+' · Added '+money(q.charge)+' · Balance '+money(updated.payment?.balance)+'</div></div>'+(r.phone?'<a class="button button-primary" target="_blank" rel="noopener" href="'+waBusinessUrl(r.phone,message)+'">Send WhatsApp</a>':'');
     section.prepend(done);
    }
