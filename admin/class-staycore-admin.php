@@ -27,6 +27,7 @@ final class StayCore_Admin {
                 'guest_id_upload'=>StayCore_Access::can('staycore_upload_guest_id'),
                 'payments'=>StayCore_Access::can('staycore_manage_payments'),
                 'checkout'=>StayCore_Access::can('staycore_checkout'),
+                'extend'=>StayCore_REST::can_extend_booking(),
                 'housekeeping'=>StayCore_Access::can('staycore_manage_housekeeping'),
                 'manager'=>StayCore_Access::can('manage_staycore_pms'),
                 'reports'=>StayCore_Access::can('staycore_view_reports'),

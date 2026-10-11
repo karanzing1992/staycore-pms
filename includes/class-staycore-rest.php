@@ -23,6 +23,7 @@ final class StayCore_REST {
     }
     public static function can_view(): bool { return StayCore_Access::can('staycore_view_pms'); }
     public static function can_reservations(): bool { return StayCore_Access::can('staycore_manage_reservations'); }
+    public static function can_extend_booking(): bool { return self::can_reservations() && self::can_payments(); }
     public static function can_guests(): bool { return StayCore_Access::can('staycore_view_guests'); }
     public static function can_guest_contact(): bool { return StayCore_Access::can('staycore_view_guest_contact'); }
     public static function can_guest_id(): bool { return StayCore_Access::can('staycore_view_guest_id'); }
@@ -107,6 +108,7 @@ final class StayCore_REST {
             ['methods'=>'GET','callback'=>[__CLASS__,'reservation_detail'],'permission_callback'=>[__CLASS__,'can_view']],
             ['methods'=>'PUT','callback'=>[__CLASS__,'update_reservation'],'permission_callback'=>[__CLASS__,'can_reservations']],
         ]);
+        register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/extend',['methods'=>'POST','callback'=>[__CLASS__,'extend_reservation'],'permission_callback'=>[__CLASS__,'can_extend_booking']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/group',['methods'=>'GET','callback'=>[__CLASS__,'group_detail'],'permission_callback'=>[__CLASS__,'can_view']]);
         register_rest_route('staycore/v1','/reservations/(?P<id>\d+)/group/members',[
             ['methods'=>'POST','callback'=>[__CLASS__,'add_group_member'],'permission_callback'=>[__CLASS__,'can_reservations']],
@@ -1305,10 +1307,127 @@ final class StayCore_REST {
         return rest_ensure_response(self::reservation_row($id));
     }
 
+
+    /**
+     * Extend one active stay. The charge is always computed on the server,
+     * never accepted as an arbitrary replacement total from the browser.
+     */
+    public static function extend_reservation(WP_REST_Request $request) {
+        global $wpdb;
+        $t=StayCore_DB::tables();
+        $id=absint($request['id']);
+        $p=$request->get_json_params();
+        if(!is_array($p)) $p=[];
+
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['reservations']} WHERE id=%d",$id),ARRAY_A);
+        if(!$row) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
+        if(!in_array((string)$row['status'],['confirmed','checked_in'],true)){
+            return new WP_Error('booking_closed','Only confirmed or checked-in reservations can be extended.',['status'=>409]);
+        }
+
+        // Reject duplicate submissions and concurrent edits rather than charging twice.
+        $expected=sanitize_text_field((string)($p['expected_check_out']??''));
+        $expected_total=$p['expected_total']??null;
+        if($expected!==((string)$row['check_out']) || !is_numeric($expected_total) ||
+            abs((float)$expected_total-(float)$row['total'])>0.009){
+            return new WP_Error('stale_booking','Booking details changed. Reopen it and review the latest dates and balance.',['status'=>409]);
+        }
+
+        $quote=StayCore_Booking_Extend::quote(
+            (string)$row['check_out'],
+            sanitize_text_field((string)($p['new_checkout_date']??'')),
+            $p['nightly_rate']??null
+        );
+        if(is_wp_error($quote)) return $quote;
+        $new_checkout_at=self::local_datetime($quote['new_checkout']);
+        if(!$new_checkout_at || $new_checkout_at<=current_datetime()){
+            return new WP_Error('extension_not_future','New checkout must be in the future.',['status'=>400]);
+        }
+        $reason=sanitize_textarea_field((string)($p['reason']??''));
+        if($quote['additional_charge']<=0){
+            if(!self::can_manage()) return new WP_Error('complimentary_forbidden','Manager approval is required for a complimentary extension.',['status'=>403]);
+            if(strlen(trim($reason))<5) return new WP_Error('extension_reason_required','Explain why this extension is complimentary.',['status'=>400]);
+        }
+
+        $new_total=round((float)$row['total']+(float)$quote['additional_charge'],2);
+        if($new_total>9999999999.99){
+            return new WP_Error('extension_amount_limit','Booking total exceeds the supported amount.',['status'=>400]);
+        }
+        $units=$wpdb->get_col($wpdb->prepare(
+            "SELECT unit_id FROM {$t['reservation_units']} WHERE reservation_id=%d",$id
+        ));
+        if(!$units) return new WP_Error('missing_units','Booking has no assigned room or bed.',['status'=>409]);
+        foreach($units as $uid){
+            $unit=$wpdb->get_row($wpdb->prepare("SELECT name,status FROM {$t['units']} WHERE id=%d",(int)$uid),ARRAY_A);
+            if(!$unit || $unit['status']!=='available'){
+                return new WP_Error('unit_unavailable','An assigned room or bed is out of service.',['status'=>409]);
+            }
+            if(self::active_overlap((int)$uid,(string)$row['check_out'],$quote['new_checkout'],$id)){
+                return new WP_Error('extension_unavailable','At least one assigned room or bed is reserved during the extension. Choose another room or dates.',['status'=>409]);
+            }
+        }
+
+        // Optimistic locking protects against two extension submissions on the
+        // same reservation. Global cross-reservation booking concurrency remains
+        // a separate inventory-locking improvement.
+        $updated=$wpdb->update(
+            $t['reservations'],
+            ['check_out'=>$quote['new_checkout'],'total'=>$new_total,'updated_at'=>current_time('mysql')],
+            ['id'=>$id,'check_out'=>$row['check_out'],'total'=>$row['total']]
+        );
+        if($updated!==1){
+            return new WP_Error('stale_booking','Extension was not saved. Reopen the booking and check its latest dates.',['status'=>409]);
+        }
+
+        $details=[
+            'old_checkout'=>(string)$row['check_out'],
+            'new_checkout'=>$quote['new_checkout'],
+            'nights'=>(int)$quote['nights'],
+            'nightly_rate'=>(float)$quote['nightly_rate'],
+            'additional_charge'=>(float)$quote['additional_charge'],
+            'old_total'=>(float)$row['total'],
+            'new_total'=>$new_total,
+            'reason'=>$reason,
+        ];
+        StayCore_DB::log('booking_extended','reservation',$id,'Stay extended by '.$quote['nights'].' night(s).',$details);
+        StayCore_Integrations::emit('reservation_extended',['reservation_id'=>$id]+$details);
+        return rest_ensure_response([
+            'id'=>$id,
+            'status'=>$row['status'],
+            'check_out'=>$quote['new_checkout'],
+            'total'=>$new_total,
+            'payment'=>self::payment_summary($id),
+            'extension'=>$details,
+        ]);
+    }
+
     public static function update_reservation(WP_REST_Request $request) {
         global $wpdb; $t=StayCore_DB::tables(); $id=absint($request['id']); $existing=self::reservation_row($id); if(!$existing) return new WP_Error('not_found','Reservation not found.',['status'=>404]);
         $p=$request->get_json_params(); $check_in=sanitize_text_field($p['check_in']??$existing['check_in']); $check_out=sanitize_text_field($p['check_out']??$existing['check_out']);
         if(strtotime($check_out)<=strtotime($check_in)) return new WP_Error('bad_dates','Check-out must be after check-in.',['status'=>400]);
+        $before=self::local_datetime((string)$existing['check_out']);
+        $after=self::local_datetime($check_out);
+        if(!$before || !$after) return new WP_Error('bad_dates','Enter a valid checkout date.',['status'=>400]);
+        $old_arrival=self::local_datetime((string)$existing['check_in']);
+        $new_arrival=self::local_datetime($check_in);
+        if($existing['status']==='checked_in' && (
+            !$old_arrival || !$new_arrival ||
+            $new_arrival->getTimestamp()!==$old_arrival->getTimestamp() ||
+            $after->getTimestamp()!==$before->getTimestamp()
+        )) {
+            return new WP_Error('checked_in_dates_locked','Checked-in dates are locked. Use Extend Booking for additional nights or complete checkout.',['status'=>409]);
+        }
+        if($after->format('Y-m-d')>$before->format('Y-m-d')) {
+            return new WP_Error('use_extend_booking','Use Extend Booking to add nights and update the balance.',['status'=>409]);
+        }
+        if(array_key_exists('total',$p)){
+            $proposed_total=(float)$p['total'];
+            if(!is_numeric($p['total']) || !is_finite($proposed_total) || $proposed_total<0) return new WP_Error('bad_total','Enter a valid booking total.',['status'=>400]);
+            if(abs($proposed_total-(float)$existing['total'])>0.009){
+                if(!self::can_payments()) return new WP_Error('payment_forbidden','Your role cannot change booking charges.',['status'=>403]);
+                if($proposed_total+0.009<(float)self::payment_summary($id)['captured']) return new WP_Error('total_below_paid','Booking total cannot be below payments already collected.',['status'=>409]);
+            }
+        }
         $unit_ids=isset($p['unit_ids'])?self::normalize_unit_ids($p):array_map(fn($x)=>(int)$x['unit_id'],$existing['assignments']);
         if(!$unit_ids) return new WP_Error('missing_units','At least one room or bed is required.',['status'=>400]);
         foreach($unit_ids as $uid) if(self::active_overlap($uid,$check_in,$check_out,$id)) return new WP_Error('unit_unavailable','One of the selected units is unavailable for those dates.',['status'=>409]);

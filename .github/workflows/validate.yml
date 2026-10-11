@@ -22,6 +22,10 @@ jobs:
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: PHP regression tests
         run: php tests/regression.php
+      - name: Booking extension regression tests
+        run: php tests/booking-extension.php
+      - name: Booking extension API tests
+        run: php tests/booking-extension-api.php
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -29,3 +33,5 @@ jobs:
         run: node --check admin/assets/app.js
       - name: Frontend checkout contract
         run: node tests/frontend-contract.cjs
+      - name: Frontend extension contract
+        run: node tests/extend-ui-contract.cjs
