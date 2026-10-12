@@ -52,9 +52,9 @@ foreach ($queries[0] as $tableIndex => $query) {
     $secondaryCount += $foundSecondary;
 }
 
-if ($primaryCount !== 8 || $secondaryCount !== 21) {
+if ($primaryCount !== 8 || $secondaryCount !== 25) {
     fwrite(STDERR, "Unexpected index count: primary=$primaryCount secondary=$secondaryCount\n");
     exit(1);
 }
 
-echo "PASS: 8 dbDelta schemas, 8 primary indexes and 21 separated secondary indexes.\n";
+echo "PASS: 8 dbDelta schemas, 8 primary indexes and 25 separated secondary indexes.\n";
