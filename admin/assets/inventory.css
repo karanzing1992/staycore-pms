@@ -1,0 +1,32 @@
+/* StayCore Inventory Manager — mobile-first, scoped */
+.staycore-inventory{--sc-ink:#19304a;--sc-border:#dce5eb;--sc-bg:#f7fafb;max-width:1280px}
+.staycore-inventory *{box-sizing:border-box}
+.staycore-inventory h1{font-size:clamp(24px,5vw,34px);color:var(--sc-ink);margin:12px 0}
+.staycore-inventory .sc-inventory-intro{color:#526575;line-height:1.5}
+.staycore-inventory .sc-inventory-panel{background:#fff;border:1px solid var(--sc-border);border-radius:18px;padding:18px;margin:18px 0;box-shadow:0 4px 18px #132b4410}
+.staycore-inventory .sc-inventory-panel h2{margin-top:0;line-height:1.3}
+.staycore-inventory .sc-inventory-panel label{display:inline-flex;flex-direction:column;gap:6px;font-weight:600;font-size:13px;min-width:140px;flex:1}
+.staycore-inventory .sc-inventory-panel input,.staycore-inventory .sc-inventory-panel select{min-height:44px;border:1px solid #bac9d4;border-radius:9px;max-width:100%;background:#fff}
+.staycore-inventory .sc-inventory-panel form p{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.staycore-inventory .button,.staycore-inventory .button-primary{min-height:42px;border-radius:9px}
+.staycore-inventory .sc-inventory-table-scroll{overflow-x:auto;overscroll-behavior-x:contain}
+.staycore-inventory .sc-inventory-table-scroll table{min-width:650px}
+.staycore-inventory .sc-inventory-calendar{overflow:auto;max-height:70vh;border:1px solid var(--sc-border);border-radius:12px}
+.staycore-inventory .sc-inventory-calendar table{min-width:720px;border:0;border-collapse:separate;border-spacing:0}
+.staycore-inventory .sc-inventory-calendar th,.staycore-inventory .sc-inventory-calendar td{white-space:nowrap;text-align:center;min-width:88px;padding:10px 8px}
+.staycore-inventory .sc-inventory-calendar tr>th:first-child{position:sticky;left:0;z-index:2;background:#fff;text-align:left;min-width:135px}
+.staycore-inventory .sc-inventory-calendar thead th{position:sticky;top:0;background:#eaf2f6;z-index:3}
+.staycore-inventory .sc-inventory-calendar thead th:first-child{z-index:4}
+.staycore-inventory .sc-state{display:inline-block;padding:7px 9px;border-radius:10px;font-size:12px;font-weight:700}
+.staycore-inventory .sc-state--available{color:#126344;background:#dbf6e8}
+.staycore-inventory .sc-state--booked{color:#873f16;background:#ffe6d0}
+.staycore-inventory .sc-state--blocked{color:#585e68;background:#e9ecf0}
+@media(max-width:782px){
+.staycore-inventory{margin:0 12px 0 0}
+.staycore-inventory .sc-inventory-panel{padding:14px;border-radius:14px}
+.staycore-inventory .sc-inventory-panel label{width:100%}
+.staycore-inventory .sc-inventory-panel form p{flex-direction:column;align-items:stretch}
+.staycore-inventory .sc-inventory-panel input,.staycore-inventory .sc-inventory-panel select,.staycore-inventory .button{width:100%}
+.staycore-inventory .sc-inventory-table-scroll td form{display:flex;gap:6px;align-items:center}
+.staycore-inventory .sc-inventory-table-scroll td form .button{width:auto}
+}
