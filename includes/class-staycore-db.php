@@ -50,7 +50,10 @@ final class StayCore_DB {
             meta LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id), KEY status (status), KEY room_group (room_group), KEY housekeeping_status (housekeeping_status)
+            PRIMARY KEY  (id),
+            KEY status (status),
+            KEY room_group (room_group),
+            KEY housekeeping_status (housekeeping_status)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['guests']} (
@@ -66,7 +69,9 @@ final class StayCore_DB {
             meta LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id), KEY phone (phone), KEY email (email)
+            PRIMARY KEY  (id),
+            KEY phone (phone),
+            KEY email (email)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['reservations']} (
@@ -86,7 +91,12 @@ final class StayCore_DB {
             meta LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id), KEY stay_dates (check_in, check_out), KEY status (status), KEY guest_id (guest_id), KEY unit_id (unit_id), KEY external_ref (external_ref)
+            PRIMARY KEY  (id),
+            KEY stay_dates (check_in, check_out),
+            KEY status (status),
+            KEY guest_id (guest_id),
+            KEY unit_id (unit_id),
+            KEY external_ref (external_ref)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['reservation_units']} (
@@ -95,7 +105,10 @@ final class StayCore_DB {
             unit_id BIGINT UNSIGNED NOT NULL,
             guests SMALLINT UNSIGNED NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL,
-            PRIMARY KEY (id), UNIQUE KEY reservation_unit (reservation_id, unit_id), KEY reservation_id (reservation_id), KEY unit_id (unit_id)
+            PRIMARY KEY  (id),
+            UNIQUE KEY reservation_unit (reservation_id, unit_id),
+            KEY reservation_id (reservation_id),
+            KEY unit_id (unit_id)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['reservation_guests']} (
@@ -109,7 +122,7 @@ final class StayCore_DB {
             meta LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             KEY reservation_id (reservation_id),
             KEY guest_id (guest_id),
             KEY unit_id (unit_id),
@@ -127,7 +140,10 @@ final class StayCore_DB {
             meta LONGTEXT NULL,
             paid_at DATETIME NOT NULL,
             created_at DATETIME NOT NULL,
-            PRIMARY KEY (id), KEY reservation_id (reservation_id), KEY external_ref (external_ref), KEY status (status)
+            PRIMARY KEY  (id),
+            KEY reservation_id (reservation_id),
+            KEY external_ref (external_ref),
+            KEY status (status)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['tasks']} (
@@ -144,7 +160,10 @@ final class StayCore_DB {
             meta LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id), KEY status (status), KEY type (type), KEY due_at (due_at)
+            PRIMARY KEY  (id),
+            KEY status (status),
+            KEY type (type),
+            KEY due_at (due_at)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$t['activity']} (
@@ -156,7 +175,9 @@ final class StayCore_DB {
             message VARCHAR(255) NOT NULL,
             meta LONGTEXT NULL,
             created_at DATETIME NOT NULL,
-            PRIMARY KEY (id), KEY entity (entity_type, entity_id), KEY created_at (created_at)
+            PRIMARY KEY  (id),
+            KEY entity (entity_type, entity_id),
+            KEY created_at (created_at)
         ) $charset;");
 
         if (!get_option('staycore_pms_settings')) add_option('staycore_pms_settings', [
