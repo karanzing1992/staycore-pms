@@ -12,7 +12,7 @@ final class StayCore_Admin {
     public static function client_config(): array {
         $all_settings=get_option('staycore_pms_settings',[]);
         return [
-            'root'=>esc_url_raw(rest_url('staycore/v1/')),'nonce'=>wp_create_nonce('wp_rest'),'today'=>current_time('Y-m-d'),
+            'root'=>esc_url_raw(rest_url('staycore/v1/')),'rest_fallback'=>esc_url_raw(home_url('/')),'nonce'=>wp_create_nonce('wp_rest'),'today'=>current_time('Y-m-d'),
             'staff_url'=>esc_url_raw(home_url('/staff/')),
             'attention_url'=>esc_url_raw(home_url('/staff/attention/')),
             'settings'=>[
