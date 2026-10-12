@@ -33,7 +33,7 @@ jobs:
           mkdir -p dist/staycore-pms
           rsync -a --exclude='.git' --exclude='.github' --exclude='dist' --exclude='node_modules' ./ dist/staycore-pms/
           test -f dist/staycore-pms/staycore-pms.php
-          grep -Eq '^ \* Version: 0\\.8\\.2$' dist/staycore-pms/staycore-pms.php
+          grep -Fqx ' * Version: 0.8.2' dist/staycore-pms/staycore-pms.php
           (cd dist && zip -qr staycore-pms-0.8.2.zip staycore-pms)
           unzip -Z1 dist/staycore-pms-0.8.2.zip | grep -qx 'staycore-pms/staycore-pms.php'
       - name: Upload WordPress plugin ZIP
