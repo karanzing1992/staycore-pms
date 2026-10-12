@@ -26,6 +26,8 @@ jobs:
         run: php tests/data-safety.php
       - name: Private booking backup encryption tests
         run: php tests/private-backups.php
+      - name: Supabase encrypted offsite storage tests
+        run: php tests/supabase-offsite.php
       - name: Administrator recovery safeguards
         run: php tests/admin-restore.php
       - uses: actions/setup-node@v4
@@ -37,3 +39,26 @@ jobs:
         run: node tests/frontend-contract.cjs
       - name: Booking atomic-write contracts
         run: node tests/atomic-data-contract.cjs
+      - name: Package isolated staging ZIP
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/2026-10-11-supabase-offsite' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'Version: 0.8.7' staycore-pms.php
+          mkdir -p dist/staycore-pms
+          cp staycore-pms.php dist/staycore-pms/
+          cp -R includes admin public dist/staycore-pms/
+          (cd dist && zip -qr staycore-pms-v0.8.7-staging.zip staycore-pms)
+          unzip -Z -1 dist/staycore-pms-v0.8.7-staging.zip | grep -q 'staycore-pms/staycore-pms.php'
+          if unzip -Z -1 dist/staycore-pms-v0.8.7-staging.zip | grep -Eq '(^|/)(tests|docs|\.github|\.env|wp-config\.php)(/|$)'; then
+            echo 'Unexpected non-plugin file in staging ZIP'
+            exit 1
+          fi
+      - name: Upload isolated staging plugin
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/2026-10-11-supabase-offsite' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: staycore-pms-v0.8.7-staging
+          path: dist/staycore-pms-v0.8.7-staging.zip
+          retention-days: 7
+          if-no-files-found: error

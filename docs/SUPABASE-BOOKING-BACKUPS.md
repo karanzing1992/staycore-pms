@@ -1,0 +1,255 @@
+# Andaz StayCore → Supabase Storage: private encrypted offsite backups
+
+**Code status:** Draft v0.8.7 (stacked on encrypted on-save booking safeguards v0.8.6). GitHub validation uses a mocked Supabase HTTPS server; the **separate Supabase project and private bucket were created on 2026-10-11**, but no real encrypted cloud upload or staging restore was performed. Production remains on StayCore v0.8.1 until an approved release.
+
+## STACK CHANGE — Staging WordPress dashboard reached; MySQL isolation independently verified (2026-10-11)
+
+- **WordPress install reported complete by site operator:** The operator logged into the access-protected `https://staycore-stage.mokshagoa.com/wp-admin/` and confirmed the WordPress **dashboard is visible** after manually entering fresh staging-only MySQL details. This is **operator-confirmed**, not an independently authenticated WordPress API/admin verification; do not overstate it.
+- **Verified separately via authenticated, read-only Hostinger hPanel MySQL Management:** staging DB `u424614865_andazqa` (**1 MB**) and staging-only DB user `u424614865_staycoreqa` are present; production DB `u424614865_8dTmk` (**515 MB**) and its different production user remain listed. These databases are distinct; no existing customer/booking data was copied.
+- **Previously verified staging gate:** the isolated `public_html/staycore-stage/.htaccess` contains four HTTP Basic Auth directives pointing to `/.andaz-stage-auth/andaz-stage-users` (credential file out of webroot). Operator validated that login permits WordPress setup. Production read-only WPVibe succeeded after this configuration, WordPress 7.1.2/PHP 8.2.34 unchanged. Do not touch production document root or change Hostinger-wide PHP.
+- **Supabase independent read-only recheck:** dedicated `andaz-pms-backup-vault` project `zwymapyqltevaaxdqqeu` is **ACTIVE_HEALTHY**, Mumbai; private `andaz-pms-private` bucket `public=false`, 10 MiB limit, **zero objects**, and **no Storage object/bucket RLS policies** currently present. Therefore **no real offsite backup or restore has run**; do not claim the staging WordPress install is backed up automatically.
+- **Next gated actions:** verify staging has search engine discouragement and no email/WhatsApp/OTA/payment integrations; configure a new dedicated staging private local encrypted-backup directory and server-side vault secret plus independent externally held recovery passphrase (never through GitHub/chat/automation); package/review StayCore v0.8.7 only on staging; create synthetic booking, confirm AES-GCM local archive and verified private remote upload/readback; test offline queue and separate clean-room restore plus admin-only audit. Retain pre-October Hostinger snapshot. Production StayCore v0.8.1 unchanged.
+- **Rollback:** stage WordPress can be locked down by restoring the staging-only deny-all `RewriteEngine On\nRewriteRule ^ - [F,L]` if HTTP access control fails, without modifying production. No staging restore or real bookings change authorized at this milestone.
+
+## STACK CHANGE — Private stage backup directory confirmed empty and outside webroot (2026-10-11)
+
+- **Operator action:** WordPress staging administrator confirmed **Settings → Reading → Discourage search engines from indexing this site** was checked/saved. Operator report only; this setting was not independently read through staging WP admin/API.
+- **Hostinger live verified:** Created `staycore-private-vault-stage` **at the File Browser account root**, as a sibling of `public_html`, `.andaz-stage-auth`, and `.moksha-private-media`, using the existing authenticated Mac Opera local bridge. Subsequent file listing verified the directory exists. Navigating into the new directory showed **empty** (“It feels lonely here…”). No secret keys or customer data were copied and no stage/production WordPress content was changed. Browser automation jobs `stageqa-vault-folder-20261011-c` (650) and `stage-vault-verify-20261011-e` (651), directory-empty readback job 653.
+- **Candidate PHP vault path** (host account root, consistent with previously verified Hostinger path): `/home/u424614865/staycore-private-vault-stage`. This is a **path planning convention, not yet a PHP write-access test**; independently verify `is_writable` from staging PHP before accepting the folder as a working encrypted backup destination. Never use any directory under `public_html` for plaintext keys or local encrypted archives.
+- **Remaining work:** server-side staging-only Supabase secret in private configuration (never chat/GitHub/agent logs), separately managed offline recovery passphrase, validate PHP permissions, review/deploy StayCore candidate v0.8.7 **to staging only**, create synthetic reservation, verify AES-256-GCM local archive + authenticated private offsite PUT/GET byte-match, offline queue + clean restore drill + admin-only audit. A folder alone does not establish offsite backup or restore capability.
+- **Safety / compatibility:** Do not adjust global PHP 8.2, WordPress production, live reservations, payment/webhook/OTA integrations, or Hostinger staging Publish. Read-only production WPVibe confirmation was previously successful; at this step WPVibe returned a **daily Free-plan fair-use limit**, so no fresh live-production verification was obtained. The earlier separately verified Supabase project/private bucket status is unchanged as far as known; no upload made during this step.
+- **Rollback:** remove the newly created empty `staycore-private-vault-stage` account-root directory only if it remains empty and clearly verified, or leave unused. Do not alter `public_html` nor `/.andaz-stage-auth/`. No production rollback required.
+
+## Actual provisioned Supabase resources (verified 2026-10-11)
+
+- Organization: `karanzing1992's Org` (ID `nustutyfswtkmljhnked`)
+- Dedicated project: `andaz-pms-backup-vault`, ref **`zwymapyqltevaaxdqqeu`**, region **`ap-south-1`** (Mumbai), **ACTIVE_HEALTHY**, quoted project cost **$0/month** on Free.
+- API URL (non-secret): **https://zwymapyqltevaaxdqqeu.supabase.co**
+- Private Storage bucket: **`andaz-pms-private`**, `public=false`, file size limit **10,485,760 bytes**, MIME type `application/octet-stream`.
+- Confirmed **zero objects** and **no storage.object or storage.bucket RLS policies** that would expose guest files to ordinary users. Security advisor: **zero findings** on initial review.
+- **Not yet configured:** A server-only project secret key, secure recovery passphrase, Hostinger private filesystem path, staging WordPress, real encrypted upload/restore or production release.
+- Open the dedicated project's keys page: https://supabase.com/dashboard/project/zwymapyqltevaaxdqqeu/settings/api-keys . Create a NEW secret key in the dashboard, do **not** copy the secret into ChatGPT/GitHub. Record it in the staging server's private `wp-config.php`, along with a separately stored 24+ character recovery passphrase. Verify the live Supabase REST transport before activating on production.
+
+
+## Hostinger manual staging progress — 2026-10-11
+
+- **Opera bridge:** Connected and verified. Worker `Karans-MacBook-Air.local-opera` is active through Supabase automation_jobs and `moksha-ops-queue`; credentials stay on the Mac. This does not use GitHub task polling or TinyFish.
+- **Native Hostinger staging is unavailable**: `mokshagoa.com` is on **Single Web Hosting**, which offers an upgrade prompt instead of one-click WordPress staging. **Do not upgrade or use Publish staging** without an explicit separate decision.
+- **Subdomain CREATED and verified**: `staycore-stage.mokshagoa.com`, document root `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage`. This path is a *public web directory* — NEVER store encrypted vault files or vault.key inside it.
+- **Hostinger MySQL Management** allows creating a new database; existing live database is not touched. The fresh WordPress Auto Installer can generate a separate database when installing onto the subdomain.
+- **Fresh installer prepared in Opera but NOT SUBMITTED**: title `Andaz StayCore QA - No Real Bookings`, proposed staging-only WordPress admin username `andaz_stage_admin`. **Mandatory**: expand **Advanced**, select the **`staycore-stage.mokshagoa.com` subdomain** as installation path; it currently defaults to the root site in its dialog header. Do not click Next/Install unless this destination is unambiguously verified. Enter a strong unique WordPress staging admin password yourself **in Opera**; browser automation must not read, store or transmit passwords.
+- **External DNS blocker**: Hostinger warned `mokshagoa.com` uses *external nameservers*. Add `staycore-stage` **A** record at the active DNS provider pointing to the **actual Hostinger origin IP**, obtained in Hostinger hPanel. Do not guess or use Cloudflare proxy IPs as the origin. Wait to confirm HTTPS for the staging subdomain.
+- **Access restriction**: In Hostinger hPanel → Advanced → Password Protect Directories, protect **only the staging directory** `public_html/staycore-stage` using credentials chosen privately by the operator. Double-check the path before clicking Protect; never protect the entire `public_html` or the root website by mistake. Disable staging indexing and outbound guest messages/webhooks/OTAs/payments.
+- **Proposed private AES vault**: after testing Hostinger PHP write rights use `/home/u424614865/staycore-private-vault-stage`, **outside** `public_html`; do not use the default path which can land under an exposed directory.
+- **Supabase key generated by user** (reported, not read or verified): privately configure `STAYCORE_SUPABASE_SECRET_KEY` on staging PHP configuration. Do not transmit it through the Supabase automation queue, GitHub, chat, logs or screenshots. Separately generate and retain `STAYCORE_SUPABASE_RECOVERY_PASSPHRASE` outside this host.
+- **Still pending**: staging WordPress installation and isolated database verification, protected directory, external DNS, secret configuration, plugin staging deployment, genuine Supabase Storage round-trip, offline key-unwrap/restoration test. No live bookings migrated. Production StayCore remains 0.8.1.
+
+## Critical Hostinger Auto Installer block — 2026-10-11, checked in Opera
+
+- **Final WordPress installation screen reached and destination verified**: `staycore-stage.mokshagoa.com` with Hostinger's proposed WordPress 7.1.3.
+- **DO NOT CLICK INSTALL.** Final screen explicitly states: **"PHP version will change from 8.2 to 8.5 during installation."** Hostinger's current documentation says a PHP version change through hPanel applies to **all websites on the hosting plan**, including the live Moksha booking site. This would be an unintended production runtime change on Single Web Hosting.
+- Hostinger documentation: https://www.hostinger.com/support/1575755-how-to-change-the-php-version-of-your-hostinger-hosting-plan/
+- Subdomain PHP handlers can be set independently via a subdomain-specific `.htaccess`, but **do not make an untested production `.htaccess` modification to work around the global installer change.** See https://www.hostinger.com/support/4047803-how-to-change-the-php-version-for-subfolders-or-subdomains-in-hostinger/
+- **Preferred no-upgrade path:** Leave plan PHP at 8.2. Install a compatible, supported WordPress release **manually**, confined to `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage`, using Hostinger File Manager + an independently created fresh MySQL database/user. Never import live WordPress SQL into staging; start with synthetic booking fixtures. Hostinger file installation guide: https://support.hostinger.com/en/articles/6149777-how-to-restore-a-wordpress-website-with-only-a-database-backup
+- Upload official WordPress distribution only; verify its source and unzip inside the intended staging directory without overwriting `public_html` root files. Install through `https://staycore-stage.mokshagoa.com/wp-admin/install.php`, using staging-only admin credentials, fresh DB credentials and table prefix, privately on the operator's Mac. **Never put passwords in browser automation task queue/results or GitHub.**
+- Set password protection for only staging and disable indexing/outbound emails/WhatsApp/payment/OTA webhooks. Keep vault directory **outside** `public_html`. Stage v0.8.7 Git changes only after static PHP tests, independent backup and isolated installation health checks.
+- **Do not deploy to production or claim real cloud backup protection** until actual Supabase encrypted upload, authenticated read-back and full offline passphrase/key restoration have been demonstrated.
+
+## Manual WordPress staging: current Hostinger screen (2026-10-11)
+
+- Continued via connected Opera Mac worker, no upgrade of hosting plan and no PHP runtime changes.
+- **Active Hostinger screen:** Databases → Management, on `mokshagoa.com` hosting dashboard. The new MySQL database suffix **`andazqa`** and new MySQL username suffix **`andazqa`** have been entered and verified by their labelled UI fields. Both are *new resources*, not the production DB.
+- **Pending human-only credential step:** Choose and enter a NEW random MySQL password in the Hostinger password field and save it in a password manager, then click `Create`. Do not copy the password to chat, Opera agent, GitHub, or any transcript. Hostinger may prepend the account identifier to DB name/user; copy the **full actual identifiers** for later WordPress configuration. After creation, independently verify MySQL Management lists this as a **second** database, leaving the 515 MB production database `u424614865_8dTmk` unchanged.
+- Hostinger official current manual subdomain WordPress installation tutorial: https://www.hostinger.com/in/tutorials/install-wordpress-on-subdomain/
+- Hostinger File Manager hPanel route was opened by Opera, but the page rendered empty in the agent's DOM; don't claim successful staging file upload. Use the Hostinger UI File Manager button to open the full file manager in its proper tab, navigate only to `domains/mokshagoa.com/public_html/staycore-stage` and upload/extract the official WordPress 7.1.3 archive. Make sure files end up directly in the staging folder, not the parent `public_html` or nested `wordpress` folder.
+- The stage URL currently displays Hostinger's default placeholder; no WordPress staging installation has occurred. No private Supabase secret is installed on the WordPress host, and **off-site encrypted booking sync is NOT live**.
+
+## Latest staging provisioning check — October 11, 2026
+
+- Verified Hostinger dashboard production runtime still reports PHP **8.2**; production WordPress **7.1.2**. No automatic installer deployment or runtime upgrade.
+- Confirmed **only one** existing MySQL database (`u424614865_8dTmk`, ~515MB) after attempted staging database creation; the new `andazqa` database **does not yet exist**. Database suffix and user suffix were filled in the form, but the Create attempt did not provision a database without a server-side password. **Do not claim it exists until it is visible as a second database.**
+- Hostinger's credential generator could not be activated reliably through the Opera bridge (browser extension timeouts). Operator must enter a new unique credential locally and use Create, then verify the second database; never send credential through a task, repo or chat.
+- Official WordPress release: **7.1.3** (October 6, 2026) at https://wordpress.org/download/releases/ ; direct package https://wordpress.org/wordpress-7.1.3.zip .
+- Hostinger's authenticated File Manager `Open` button was clicked from the website dashboard; no accessible second File Manager tab appeared in the Opera bridge. **No WordPress package was uploaded to staging.** Hostinger docs: https://www.hostinger.com/support/4548688-basic-actions-in-the-file-manager-in-hostinger/ .
+- Manual install acceptance: only `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage` receives official WordPress core (and empty fixture content); never overwrite production `public_html`. Select a NEW MySQL database; keep hosting PHP 8.2. Protect staging and block external integrations.
+- Backup Supabase project `zwymapyqltevaaxdqqeu` and private bucket `andaz-pms-private` are already provisioned, but no server secret has been configured and no real encrypted transfer/recovery test has succeeded.
+ 
+## Live Hostinger staging progress — 2026-10-11: verified new DB and file root
+
+- **SUCCESS:** A second, independent Hostinger MySQL database was created and confirmed in hPanel:
+  - **DB name**: `u424614865_andazqa` (~1 MB at creation)
+  - **New DB user**: `u424614865_staycoreqa` (different suffix from database; intentional)
+  - Private password was entered via Hostinger's browser UI, **not added to ChatGPT or GitHub**. Retain in operator's local password manager for manual WordPress setup.
+  - Existing production DB **`u424614865_8dTmk`** remained listed at ~515 MB and was not modified.
+- **SUCCESS:** Found existing Hostinger File Browser tab in Opera (`srv1669-files.hstgr.io`) and navigated **read-only** from its account file root to `public_html/staycore-stage`. Confirmed only existing file `default.php` (~15.99 KiB) in the staging folder; root `public_html` retains the live WordPress files. **Never upload WordPress ZIP at the parent `public_html` level.**
+- **Initiated** official WordPress 7.1.3 archive download in Opera: `https://wordpress.org/wordpress-7.1.3.zip`; not yet verified to exist on Mac in Downloads. Official release verified at https://wordpress.org/download/releases/ .
+- File Browser `Upload` menu opened and `File` control clicked, but the Opera agent timed out as the native file chooser was requested. **No upload or extraction confirmed.** User must select `wordpress-7.1.3.zip` in File Browser while breadcrumb reads `public_html > staycore-stage`, then verify ZIP appears in that folder. The official ZIP contains a top-level `wordpress/` directory; move its contents into the staging document root rather than leaving a nested `staycore-stage/wordpress` install.
+- WordPress is **not installed** on staging yet, and real encrypted Supabase upload/readback and recovery drill have **not happened**. Do not change hosting-wide PHP from 8.2, import live booking rows, expose secrets, or deploy production changes.
+
+## WordPress ZIP upload and staging extraction — verified 2026-10-11
+
+- Confirmed in authenticated Hostinger File Browser `public_html/staycore-stage`: **`wordpress-7.1.3.zip`**, 35.5 MiB, plus existing `default.php` only.
+- Successfully extracted the ZIP into `public_html/staycore-stage/wp-extracted/wordpress/`. Verified the official WordPress core tree, including 3 directories `wp-admin`, `wp-content`, `wp-includes` and 16 PHP/other core files.
+- Selected **exactly 19** WordPress core entries in this nested folder and opened File Browser's `Move` destination picker. **Nothing has been moved yet.** The destination picker is *still* at `/files/public_html/staycore-stage/wp-extracted/wordpress/`. Opera could not reliably navigate its `..` control, including native mouse attempts.
+- For a manual completion in Opera's already open File Browser tab: in the `Move` dialog, double-click the `..` row to navigate first to `/files/public_html/staycore-stage/wp-extracted/`, then double-click `..` again to reach **`/files/public_html/staycore-stage/`**; verify that **exact destination** before clicking `MOVE`. **NEVER** select the parent `/files/public_html/` root. Then verify 19 core entries live directly under the staging document root.
+- `default.php` is Hostinger's staging placeholder and may need to be removed from **only the staging directory** after WordPress is verified; do not delete production `default.php`.
+- WordPress itself is not yet installed/configured; manual DB credentials are held only by the owner. Supabase cloud backup uploads and recovery drill remain untested; StayCore production unchanged.
+
+## Hostinger manual staging status — 2026-10-11 (latest verified)
+
+- User moved selected 19 files; live check showed their destination was **one level short**, not root: `public_html/staycore-stage/wp-extracted/`. The original `wp-extracted/wordpress/` was empty. Hostinger live `public_html` root was never selected by the agent.
+- Subsequently all 19 files and directories were again selected in `wp-extracted` and **Move file** modal is open. **Current picker path confirmed:** `/files/public_html/staycore-stage/wp-extracted/`.
+- **The Move action has NOT been submitted.** Opera agent single clicks, double click attempts and Enter on picker `..` did not change picker path. Do not submit at current path: it would be a no-op.
+- Operator must **double-click `..` once inside Move modal**, inspect the picker footer reading **`Currently navigating on: /files/public_html/staycore-stage/.`** (exact, no `wp-extracted`, no parent `public_html` alone), then press **MOVE**, and recheck that `wp-admin`, `wp-content`, `wp-includes`, `wp-login.php`, and `index.php` now appear directly in staging root.
+- Do not delete parent `wp-extracted` or staging `default.php` before confirming WordPress setup. No WordPress database config or install yet. Existing staging DB `u424614865_andazqa` and user `u424614865_staycoreqa`; password only owner holds.
+
+## Verified WordPress staging root and access-control prerequisite (2026-10-11)
+
+- **19 official WordPress 7.1.3 core files/folders verified at document root** `/home/u424614865/domains/mokshagoa.com/public_html/staycore-stage/`, including `index.php`, `wp-admin`, `wp-content`, `wp-includes`, and `wp-login.php`. The previous nested `wp-extracted` directory and official ZIP remain as cleanup candidates **after installation QA**. The live `public_html` contents were not overwritten.
+- **Staging WordPress setup confirmed to work via HTTPS**: `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` displays the standalone database-connection form. **Not configured or installed yet**. This publicly accessible setup page must be protected promptly to prevent third-party initial installation.
+- Hostinger hPanel → Advanced → Password Protect Directories opened through authenticated Opera. **Nonsecret fields filled but not submitted**: Directory `/staycore-stage`, Username `andaz_stage_guard`. The operator must enter a unique staging HTTP-basic-auth password locally in Opera and click **Protect**. **Verify that only staging has become password-protected**; do not accidentally protect directory `/` (which could interrupt the production site). Official instructions: https://www.hostinger.com/support/1583470-how-to-password-protect-a-website-in-hostinger/
+- After protection succeeds, resume initial WordPress database setup with database `u424614865_andazqa`, user `u424614865_staycoreqa`, host `localhost`, prefix `scstage_`, and the privately saved database password. **Never put either password in chat, GitHub, Supabase automation jobs or snapshots**.
+- Do not use the separate Supabase project as the WordPress MySQL database, change hosting-wide PHP 8.2, clone the live bookings, or deploy draft StayCore code until staging is installed and isolated; Supabase encrypted cloud backup/restore remains untested.
+
+## CRITICAL: Directory-protection incident and recovery — October 11, 2026
+
+- Attempting to password-protect only staging mistakenly produced **Hostinger Password Protect Directories entry: Area `/`, username `Karan`**, blocking the live `mokshagoa.com` WordPress REST/API with HTTP 401 and Opera homepage loads. **Do not repeat that protection flow without first proving the resulting area is only `/staycore-stage`.**
+- The user submitted root-entry deletion in Hostinger. **Verified afterward:** Hostinger's protected directories table was empty; live WPVibe authenticated read-only `site_info` succeeded again with administrator role, WordPress 7.1.2 and PHP 8.2.34. The live WordPress runtime was **not changed** by staging.
+- **Staging is currently NOT password-protected** (no Hostinger protected entries). The fresh WordPress setup is publicly addressable and **no DB credentials or WordPress administrator account should be entered until staging-only protection is verified**. Any security configuration must be checked for scope and access with independent probes of both the live site and stage before proceeding.
+- No live PMS booking data/database edits, fresh WP installation completion, Supabase secret installation, encrypted backup upload, or restore drill were done in this recovery check.
+- Re-evaluate whether Hostinger's Protect Directories is relative to primary-site document root rather than subdomain. Prefer a site-specific staging `.htaccess` and an auth-user-file **outside webroot**, deployed **only in the staging folder**, if that can be implemented and tested safely. Do not apply a plan-wide or root-site configuration.
+
+## Pending staging .htaccess guard activation — 2026-10-11
+
+- Hostinger official docs confirmed `.htaccess` may be created **only** in the target subdirectory: https://www.hostinger.com/support/1583307-how-to-create-an-htaccess-file/ .
+- Used authenticated Opera File Browser `srv1669-files.hstgr.io` to create a NEW `.htaccess` under `public_html/staycore-stage/`, NOT live `public_html/`. Hostinger editor opens and Save button was pressed. Planned temporary gate content:
+  ```apache
+  # ANDAZ STAYCORE STAGING LOCKDOWN - staging directory only
+  # Temporary guard until isolated HTTP authentication is configured.
+  <IfModule mod_authz_core.c>
+  Require all denied
+  </IfModule>
+  ```
+- **CRITICAL: not active/verified.** Browser still successfully reached `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` (WordPress DB form) **after Save**. It is unknown whether the code was actually entered into the editor (Opera nativePaste targeted unfocused editor), or whether the LiteSpeed server ignored the conditional `<IfModule>` block. Do not claim staging is protected. The browser extension cannot currently focus the File Browser's code editor reliably.
+- Immediate next step: in Opera File Browser's OPEN `.htaccess` editor at `public_html > staycore-stage > .htaccess`, click directly into the code area and paste a guarded deny-all rule without conditional modules (`RewriteEngine On\nRewriteRule ^ - [F,L]`), press Save, test stage returns 403, and verify production WordPress remains accessible. An all-deny rule is TEMPORARY and MUST be replaced with valid staging-only HTTP Basic auth before any database credentials are entered or installation is resumed. Never edit the main site's `.htaccess`.
+- No fresh DB connection or WordPress install performed. Production WPVibe authenticated `site_info` still succeeds after the staging-only editor attempt with WP 7.1.2 and PHP 8.2.34.
+
+## STACK CHANGE — temporary stage-only isolation VERIFIED LIVE (2026-10-11)
+
+- **Deployment:** Hostinger File Browser, staging document root `public_html/staycore-stage/.htaccess` only. After operator focused its code editor, Opera Mac bridge `nativePaste` supplied:
+  ```apache
+  # ANDAZ StayCore temporary staging lockdown
+  # Applied only inside /public_html/staycore-stage
+  RewriteEngine On
+  RewriteRule ^ - [F,L]
+  ```
+  Saved via File Browser; Opera queue source jobs `andaz-stage-focused-guard-paste-20261011-160` and `andaz-stage-focused-guard-save-20261011-161`.
+- **Verified stage response (live, not a deployment claim alone):** `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` responded **403 Forbidden** with body "Access to this resource on the server is denied!" and browser title `403 Forbidden`. Read-only Opera verification job `andaz-stage-focused-guard-verify-20261011-162` / local Supabase automation job row 575.
+- **Production compatibility:** Independent authenticated read-only WPVibe `site_info` against `https://mokshagoa.com` succeeded after guard saved, with WP 7.1.2, PHP 8.2.34 and verified authenticated connection. No production `.htaccess`, booking data, DB, WordPress runtime or payments changed.
+- **Status/limitation:** This is an intentional **temporary deny-all**, not an authenticated staging portal. It blocks the admin/operator too; install cannot proceed until a secure **staging-specific access control** replaces the rule. Staging has not yet completed initial WordPress install or attached DB `u424614865_andazqa`. Offsite backup upload/restore validation remains untested.
+- **Rollback:** Use Hostinger File Browser directly at `public_html/staycore-stage/.htaccess` to remove or adjust `RewriteRule ^ - [F,L]` **only after an alternative gate is verified**; never modify the main site's `public_html/.htaccess`. Check both stage and production on every change. Existing earlier Hostinger root `/` password protection incident is resolved and must not recur.
+- **Evidence:** [StayCore staging backup PR #39](https://github.com/karanzing1992/staycore-pms/pull/39), `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1` (expected 403 under guard), `https://mokshagoa.com` (production site unaffected).
+  
+## STACK CHANGE — Dedicated off-webroot staging credential directory (2026-10-11)
+
+- **Verified live on Hostinger:** created `.andaz-stage-auth` at the authenticated File Browser **account root, sibling of `public_html`**, not beneath publicly served staging. File Browser listing showed `.andaz-stage-auth` and opening `/files/.andaz-stage-auth/` showed an **empty** folder. Existing separate private folder `.moksha-private-media` and website `public_html` were untouched.
+- This is only a credential-storage destination, **not yet an active Basic Auth system**. Staging remains protected by the previously verified `public_html/staycore-stage/.htaccess` `RewriteRule ^ - [F,L]`, which returned **HTTP 403** at the WordPress setup URL. No initial WordPress install or database credentials transmitted.
+- **Operator prerequisite:** on the local Mac create a new high-entropy HTTP Basic credential with `/usr/bin/htpasswd -c -B -C 10 "$HOME/Downloads/andaz-stage-users" stage_guard`. The command prompts privately without echo; do not use `-b` or type the password into the conversation, automation queue, GitHub or an issue. Upload ONLY the resulting bcrypt password file from `~/Downloads/andaz-stage-users` to Hostinger File Browser `/.andaz-stage-auth/` (outside `public_html`). After upload, verify the file exists there without exposing its contents.
+- **Proposed only (not deployed):** replace the staging-only deny-all `.htaccess` with `AuthType Basic\nAuthName "Andaz StayCore Staging"\nAuthUserFile /home/u424614865/domains/mokshagoa.com/.andaz-stage-auth/andaz-stage-users\nRequire valid-user`. Confirm actual Hostinger filesystem root before applying and never delete the previous guard without an equivalent restriction. Hostinger instructions: https://www.hostinger.com/support/1583316-how-to-add-a-login-form-to-a-website-in-hostinger/ . Apache supports bcrypt password files: https://httpd.apache.org/docs/2.4/programs/htpasswd.html .
+- **Acceptance:** unauthenticated staging shows HTTP 401 with Basic challenge; valid locally held password reaches WordPress setup; intentionally invalid password remains blocked; production WordPress stays API-accessible on PHP 8.2.34. No change to live Moksha files/database/booking plugin. Roll back via staging-only File Browser to previous deny-all if auth fails. Once proven, fill staging-only MySQL `u424614865_andazqa` / `u424614865_staycoreqa` privately, prefix `scstage_`; continue Supabase booking-vault upload/readback and controlled staging restore drill.
+
+## 2026-10-11 — Private password file verified; auth candidate staged but NOT live
+
+- Verified via authenticated Hostinger File Browser: `/.andaz-stage-auth/andaz-stage-users`, **50 B**, privately uploaded by operator. Do not read or record its contents in tools or commits. `/.andaz-stage-auth/` is outside `public_html/`.
+- Created candidate `public_html/staycore-stage/.htaccess.authready`, **156 B**. Saved content is four directives: `AuthType Basic`, `AuthName "Andaz StayCore Staging"`, `AuthUserFile /home/u424614865/domains/mokshagoa.com/.andaz-stage-auth/andaz-stage-users`, `Require valid-user`. Do not assume this configuration is valid until tested by an actual HTTP 401 challenge plus successful password login.
+- **Not activated.** A direct rename from `.htaccess.authready` to `.htaccess` safely failed with **409 Conflict**, leaving the existing staging-only deny-all `.htaccess` (319 B) untouched. The active file currently still includes `Require all denied` and `RewriteRule ^ - [F,L]`. Real WordPress installer retest returned HTTP **403 Forbidden**, and live Moksha WPVibe API auth successfully verified at 2026-10-11T08:42:21Z (WP 7.1.2, PHP 8.2.34).
+- The Opera native browser bridge cannot issue a Command+A shortcut or reliably select the entire Ace editor buffer on the user's Mac; it can paste and save after selection/focus. Live `public_html/staycore-stage/.htaccess` editor is open and ready. The final safe in-place replacement requires selection of all text inside Ace (Cmd+A, initiated manually unless a trusted keyboard-combo bridge capability is installed), then browser native paste of the prepared four directives, Save and immediate unauthenticated stage/production retest. **Do NOT rename away the existing guard first; that exposes unfinished WordPress installer.**
+- Rollback: if stage does not challenge with 401 or errors, restore the original staging-only `Require all denied` plus `RewriteRule ^ - [F,L]` immediately. Do not touch the main site's `.htaccess`; no staging DB or WordPress admin credentials were entered.
+
+## STACK CHANGE — Staging Basic Authentication staged live, challenge validation pending (2026-10-11)
+
+- **Verified saved in Hostinger File Browser:** `public_html/staycore-stage/.htaccess` is **156 B** (previous file 319 B), replaced through Opera after the operator selected the old text. Verified before Save via editor text and afterward via directory listing, recorded in Browser Agent jobs `andaz-stage-verify-pasted-auth-20261011-218`, `andaz-stage-save-live-basicauth-20261011-219`, `andaz-stage-auth-saved-filesize-afterload-20261011-223`. Four active nonsecret directives:
+  ```apache
+  AuthType Basic
+  AuthName "Andaz StayCore Staging"
+  AuthUserFile /home/u424614865/domains/mokshagoa.com/.andaz-stage-auth/andaz-stage-users
+  Require valid-user
+  ```
+- **Private credential file:** `/.andaz-stage-auth/andaz-stage-users`, 50 B, verified uploaded under File Browser account root outside `public_html`. Contents never read or exported.
+- **HTTP result unresolved:** Opera's staging tab initially retained an earlier `403 Forbidden` title, then content extraction yielded a browser `Frame with ID 0 is showing error page`. A separate unauthenticated external web fetch returned `target_unreachable` and no page body. This is **not sufficient to assert a 401 WWW-Authenticate challenge** or successful login. Do **not** call Basic Auth fully validated until an unauthenticated private window prompts for `stage_guard` and the operator confirms the password reaches the WP setup screen; verify an invalid password remains blocked. The absolute AuthUserFile path has not been server-side verified.
+- **Production isolation verified:** independent read-only WPVibe `site_info` successfully authenticated to `https://mokshagoa.com` after change, WordPress 7.1.2/PHP 8.2.34 unchanged. Independent external crawler also returned live homepage content. No production files/database/booking changes.
+- **Rollback, stage only:** If stage shows a 500 error or no authentication gate, replace only `public_html/staycore-stage/.htaccess` with `RewriteEngine On\nRewriteRule ^ - [F,L]` (or previously tested deny-all) and retest for 403. Never configure Hostinger protection for directory `/` again.
+- **Still pending:** staging private login positive/negative tests, initial WP configuration with separate `u424614865_andazqa` / `u424614865_staycoreqa`, backup vault first encrypted upload/readback, verified restore drill. The `.htaccess.authready` (156 B) is a leftover candidate in staging folder; clean up only after successful validation.
+
+## Staging authentication positive test and isolated MySQL verification — 2026-10-11
+
+- **Operator-confirmed:** in a private Opera window at `https://staycore-stage.mokshagoa.com/wp-admin/setup-config.php?step=1`, authentication with `stage_guard` and the privately held password opened the WordPress database setup form. This is a positive authorized-access test; an invalid-password/unauthorized-access test is **not yet independently verified**.
+- **Live Hostinger read-only verification:** MySQL Management page at `https://hpanel.hostinger.com/websites/mokshagoa.com/databases/my-sql-databases?redirectLocation=side_menu` explicitly lists staging database `u424614865_andazqa` (1 MB, created Oct 11 2026) with MySQL user `u424614865_staycoreqa`. Separate production database `u424614865_8dTmk` remains listed (515 MB, created Oct 24 2024); do not touch it. `localhost` and `scstage_` are the planned WordPress setup host/prefix.
+- Browser bridge `Karans-MacBook-Air.local-opera` gets `Frame with ID 0 is showing error page` for unauthenticated staging in a regular Opera tab, because the authenticated WordPress database setup is in user's **private** Opera window. The native bridge cannot act inside that private window with current permissions. Have operator enter staging HTTP Basic credentials once into the existing normal Opera staging tab (not into chat) so agent can fill non-secret WP DB fields. DB password must be entered manually by the operator into WordPress password input, never in the bridge queue/chat/docs/issue.
+- **No database connection submitted, no `wp-config.php` created by this step, no staging WP administrator account created or database restored.** No production DB or PHP changes. Safe rollback for auth remains staging-only `.htaccess` deny-all; test invalid password and production reachability before any staging restore.
+
+## Project isolation and pricing
+
+**Do not use existing `constituency-ops-v1` for guest data.** On October 11, 2026 the user explicitly approved a new isolated Supabase project for Andaz; the cost-confirmation tool returned $0/month and project creation **succeeded**. The new backup project is separate from the election application.
+
+The dedicated **`andaz-pms-backup-vault`** Supabase project has been created in `ap-south-1` (Mumbai). On the Free plan a project may be paused after around seven days of low database activity, and no service-level guaranteed availability is provided. This means the durable local upload queue is essential, with alerts, daily independent verification and optional paid upgrade if high reliability is required. Supabase has no equivalent to Cloudflare R2 bucket-lock retention in this design; API access with a project secret can delete objects. Do not promise tamper-proof/WORM retention.
+
+Supabase official docs:
+- https://supabase.com/docs/guides/storage/security/access-control
+- https://supabase.com/docs/guides/storage/buckets/fundamentals
+- https://supabase.com/docs/guides/storage/uploads/standard-uploads
+- https://supabase.com/docs/guides/getting-started/api-keys
+- https://supabase.com/docs/guides/platform/free-project-pausing
+
+## One-time Storage setup
+
+1. **Completed 2026-10-11:** Dedicated private Storage bucket **`andaz-pms-private`** created with a 10 MB binary-file limit; no public asset URLs or user-facing Storage policies. Do not later make the bucket public or grant `anon`/`authenticated` access.
+2. **Project Settings → API Keys:** create a separate **secret key** for the WordPress server (format `sb_secret_...`). NEVER use a publishable/anon key to bypass policies and never display the secret in chat, GitHub, logs or browser JS. The secret key bypasses RLS for the ENTIRE dedicated project; it is not bucket scoped. The dedicated project is therefore a hard access boundary.
+3. Do not grant Storage object DELETE or UPDATE policies to ordinary users. The WordPress connector itself only uses POST without upsert and GET to verify backups, and implements no remote delete, but a stolen project secret can still alter data. Rotate compromised keys immediately.
+4. In `wp-config.php`, **outside GitHub**, configure the *actual* dedicated project and private local path:
+
+```php
+define('STAYCORE_PRIVATE_BACKUP_DIR', '/real/private/hostinger/path/staycore-vault');
+define('STAYCORE_SUPABASE_ENABLED', true);
+define('STAYCORE_SUPABASE_PROJECT_REF', 'zwymapyqltevaaxdqqeu');
+define('STAYCORE_SUPABASE_BUCKET', 'andaz-pms-private');
+define('STAYCORE_SUPABASE_SECRET_KEY', 'sb_secret_REPLACE_SECURELY');
+define('STAYCORE_SUPABASE_RECOVERY_PASSPHRASE', 'YOUR_24_PLUS_CHARACTER_RECOVERY_PASSPHRASE');
+define('STAYCORE_SUPABASE_PREFIX', 'andaz/staycore/staging'); // staging first!
+```
+
+The project ref, bucket, secret and recovery passphrase values above are PLACEHOLDERS, not actual credentials. Production uses `andaz/staycore/production`, but only after validation. Do not reuse the staging WP database as live or expose backup files in `public_html`. Do not reuse a production vault key in a test vault. Recovery passphrase must be generated independently and retained in a separate secure password manager or offline kit, **outside Hostinger and Supabase**.
+
+## Automatic archive workflow
+
+- Every protected booking mutation writes a local SQL booking revision AND a verified AES-256-GCM file with a SHA256 checksum. A failed local backup prevents that protected booking write.
+- Within about one minute of saving, or at the 5-minute cron interval, the Supabase queue retries up to 25 unsynced encrypted archives. Network outages do **not** block locally protected bookings.
+- The worker first creates/validates a *passphrase-wrapped* 32-byte local AES key (PBKDF2-SHA256 + AES-256-GCM). It uploads the key envelope to the *private* Storage bucket under `v1/recovery/...`; it never sends the unwrapped AES key.
+- Each booking archive is re-authenticated locally, uploaded via `POST /storage/v1/object/<bucket>/<object>` with `x-upsert: false`, and **downloaded via authenticated private Storage GET** for byte-for-byte SHA256 comparison. An existing remote object must match exactly or backup sync fails.
+- Successful transfers record a local `.supabase-synced` receipt; original encrypted files are never deleted automatically. Failed transfers remain on disk and retry. Cron checks one older remote object each day and alerts administrators on failures or backlog beyond 30 minutes.
+- Only the WordPress PHP server holds the Supabase secret. No guest names/payments are inserted in Supabase database tables; private bucket object names contain only reservation IDs and random identifiers. Decrypting a cloud archive requires the wrapped key, externally held passphrase and authorization.
+
+### Monitor
+
+In WordPress **Tools → StayCore Booking Recovery**, administrators see: cloud enabled/configured status, pending encrypted files, oldest queued minutes and last remote-verified time. Verify a real server-level 5-minute cron; WP-Cron can stall without traffic. Verify administrator emails are actually delivered.
+
+## First staging acceptance test
+
+1. Create Hostinger staging on **a distinct MySQL database**, protected by password and search-indexing disabled. Disable transactional emails, WhatsApp sends, OTAs, payment webhooks and all outgoing third-party calls except test Supabase Storage.
+2. Install reviewed plugin v0.8.7 on staging only, use its own private local vault path, staging cloud prefix and a test booking; check **Tools → StayCore Booking Recovery** vault-ready / offsite-configured.
+3. Save/change a *disposable* booking; see an AES-GCM local archive and a private Storage object; verify actual cloud download and SHA256 matches original.
+4. Simulate offline mode in disposable staging, save another booking, observe pending offsite queue. Restore network and verify backlog reaches zero.
+5. In a separate offline/staging folder, download the **wrapped vault key** and encrypted booking file from Supabase Storage. Unwrap the key with the independently retained passphrase, never by copying a production key into chat. Verify AES-GCM authentication and reservation ID; confirm wrong passphrase/corrupted ciphertext fails closed.
+6. Test WordPress **Administrator-only** two-step preview & restore, reason+typed confirmation+audited rollback; ensure staff cannot restore, and no payments are lost. Group/closed/deleted booking recovery is manual and must use isolated staging.
+7. Confirm the remote backup has not granted public access (an unauthenticated download must return 401/403). Confirm nothing in `storage.objects` is publicly readable under RLS; check Supabase security advisor.
+8. Backup the current WordPress DB separately and preserve the old pre-October 1 Hostinger weekly snapshot before any deployment; do not restore old SQL over the current live database.
+
+**IMPORTANT:** Do NOT click Hostinger "Publish staging": that can replace production database tables and erase bookings created since staging cloning. Deploy plugin-only reviewed files after release gating; never merge/deploy the draft PR before the vault is provisioned and a real restore drill succeeds.
+
+## Recovery boundaries and limitations
+
+- Server-offline/local key loss scenario is recoverable only if the wrapped vault-key envelope, every encrypted archive and independent passphrase survive. A disconnected/offline copy of the recovery passphrase remains mandatory.
+- Automated WordPress administrator restore supports constrained fields of *existing* non-group, active reservations, after diff/conflict/payment checks and complete audit. It deliberately does not auto-recreate destroyed reservation IDs, overwrite payments, change guest identity or restore closed/group bookings.
+- Historic booking IDs **7, 8, 11** predate the safeguard; their full source rows can only be recovered from independent historical SQL exports/OTA sources.
+- Supabase Storage **is not a database snapshot or WORM storage**. Keep Hostinger database backups and optionally another independent provider for regulatory-grade tamper-resistant retention.
+- Even with a five-minute queue, an abrupt server loss can destroy the most recent not-yet-synced encrypted files. A strict zero-data-loss RPO would require synchronous remote durability or a second write-ahead log, plus fail-closed booking transactions during cloud outages.
