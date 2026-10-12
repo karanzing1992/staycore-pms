@@ -20,6 +20,7 @@ require_once STAYCORE_PMS_DIR . 'includes/class-staycore-db.php';
 require_once STAYCORE_PMS_DIR . 'includes/class-staycore-integrations.php';
 require_once STAYCORE_PMS_DIR . 'includes/class-staycore-rest.php';
 require_once STAYCORE_PMS_DIR . 'admin/class-staycore-admin.php';
+require_once STAYCORE_PMS_DIR . 'admin/class-staycore-recovery-admin.php';
 require_once STAYCORE_PMS_DIR . 'public/class-staycore-public.php';
 require_once STAYCORE_PMS_DIR . 'public/class-staycore-staff.php';
 
@@ -31,6 +32,7 @@ add_action('plugins_loaded', static function () {
     StayCore_Integrations::boot();
     StayCore_REST::boot();
     StayCore_Admin::boot();
+    StayCore_Recovery_Admin::boot();
     StayCore_Public::boot();
     StayCore_Staff::boot();
 });
