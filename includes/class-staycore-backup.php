@@ -44,18 +44,44 @@ final class StayCore_Backup {
         global $wpdb;
         $inventory = [];
         $total_bytes = 0;
-        foreach (StayCore_DB::tables() as $name=>$table) {
-            // Identifiers originate from the plugin's fixed table map, not HTTP requests.
-            $quoted = '`' . str_replace('`', '``', $table) . '`';
-            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) {
-                return new WP_Error('table_missing', 'Required PMS table missing: ' . $name);
+        $tables = StayCore_DB::tables();
+        // Consistent snapshots require transactional tables. Fail closed otherwise.
+        foreach ($tables as $name=>$table) {
+            $engine = $wpdb->get_var($wpdb->prepare(
+                "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+                $table
+            ));
+            if (!is_string($engine) || strcasecmp($engine, 'InnoDB') !== 0) {
+                return new WP_Error('nontransactional_table', 'Backup requires InnoDB table: ' . $name);
             }
-            $rows = $wpdb->get_results('SELECT * FROM ' . $quoted, ARRAY_A);
-            if (!is_array($rows)) return new WP_Error('read_failed', 'Could not read PMS table ' . $name);
-            $inventory[$name] = $rows;
-            $total_bytes += strlen(wp_json_encode($rows));
-            if ($total_bytes > 12582912) return new WP_Error('snapshot_limit', 'Snapshot exceeds the 12 MiB safety limit; use a streamed snapshot engine.');
         }
+        if ($wpdb->query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') === false ||
+            $wpdb->query('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY') === false) {
+            return new WP_Error('transaction_failed', 'Could not start a consistent read-only database snapshot.');
+        }
+        $read_error = null;
+        foreach ($tables as $name=>$table) {
+            $quoted = '`' . str_replace('`', '``', $table) . '`';
+            $rows = $wpdb->get_results('SELECT * FROM ' . $quoted, ARRAY_A);
+            if (!is_array($rows) || $wpdb->last_error) {
+                $read_error = new WP_Error('read_failed', 'Could not read PMS table ' . $name);
+                break;
+            }
+            $encoded_rows = wp_json_encode($rows);
+            if (!is_string($encoded_rows)) {
+                $read_error = new WP_Error('encode_failed', 'Could not encode PMS table ' . $name);
+                break;
+            }
+            $total_bytes += strlen($encoded_rows);
+            if ($total_bytes > 12582912) {
+                $read_error = new WP_Error('snapshot_limit', 'Snapshot exceeds the 12 MiB safety limit; use a streamed snapshot engine.');
+                break;
+            }
+            $inventory[$name] = $rows;
+        }
+        // Never keep a database transaction open during encryption or remote network calls.
+        $wpdb->query('ROLLBACK');
+        if ($read_error) return $read_error;
         $timestamp = gmdate('Y-m-d\\TH-i-s\\Z');
         $data = wp_json_encode([
             'format'=>'staycore-snapshot-v1',
