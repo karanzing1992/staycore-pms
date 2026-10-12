@@ -36,12 +36,12 @@ jobs:
           mkdir -p dist/staycore-pms
           rsync -a --exclude='.git' --exclude='.github' --exclude='dist' --exclude='node_modules' ./ dist/staycore-pms/
           test -f dist/staycore-pms/staycore-pms.php
-          grep -Fqx ' * Version: 0.8.5' dist/staycore-pms/staycore-pms.php
-          (cd dist && zip -qr staycore-pms-0.8.5.zip staycore-pms)
-          unzip -Z1 dist/staycore-pms-0.8.5.zip | grep -qx 'staycore-pms/staycore-pms.php'
+          grep -Fqx ' * Version: 0.8.6' dist/staycore-pms/staycore-pms.php
+          (cd dist && zip -qr staycore-pms-0.8.6.zip staycore-pms)
+          unzip -Z1 dist/staycore-pms-0.8.6.zip | grep -qx 'staycore-pms/staycore-pms.php'
       - name: Upload WordPress plugin ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: staycore-pms-0.8.5-wordpress-plugin
-          path: dist/staycore-pms-0.8.5.zip
+          name: staycore-pms-0.8.6-wordpress-plugin
+          path: dist/staycore-pms-0.8.6.zip
           if-no-files-found: error
