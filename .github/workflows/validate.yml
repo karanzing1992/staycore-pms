@@ -19,6 +19,8 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
+      - name: Inventory module presence
+        run: test -f admin/class-staycore-inventory-admin.php && test -f admin/assets/inventory.css
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - uses: actions/setup-node@v4
