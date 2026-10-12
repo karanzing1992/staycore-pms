@@ -73,8 +73,8 @@ final class StayCore_Backup {
                 break;
             }
             $total_bytes += strlen($encoded_rows);
-            if ($total_bytes > 12582912) {
-                $read_error = new WP_Error('snapshot_limit', 'Snapshot exceeds the 12 MiB safety limit; use a streamed snapshot engine.');
+            if ($total_bytes > 6291456) {
+                $read_error = new WP_Error('snapshot_limit', 'Snapshot exceeds the 6 MiB safety limit; use a streamed snapshot engine.');
                 break;
             }
             $inventory[$name] = $rows;
@@ -101,6 +101,10 @@ final class StayCore_Backup {
             'ciphertext'=>base64_encode($payload),
             'sha256'=>hash('sha256', $data),
         ]);
+        // Ciphertext and JSON envelope expand beyond plaintext size. Fail before upload.
+        if (!is_string($wrapper) || strlen($wrapper) > 9437184) {
+            return new WP_Error('snapshot_limit', 'Encrypted payload exceeds the 9 MiB upload safety limit.');
+        }
         $object = 'staycore/' . hash('sha256', home_url()) . '/' . $timestamp . '-' . bin2hex(random_bytes(5)) . '.json';
         $url = rtrim(STAYCORE_VAULT_URL, '/') . '/storage/v1/object/' . rawurlencode(STAYCORE_VAULT_BUCKET) . '/' . $object;
         $response = wp_remote_post($url, [
@@ -109,7 +113,7 @@ final class StayCore_Backup {
             'headers'=>[
                 'apikey'=>STAYCORE_VAULT_KEY,
                 'Authorization'=>'Bearer ' . STAYCORE_VAULT_KEY,
-                'Content-Type'=>'application/json',
+                'Content-Type'=>'application/octet-stream',
                 'x-upsert'=>'false',
             ],
             'body'=>$wrapper,
