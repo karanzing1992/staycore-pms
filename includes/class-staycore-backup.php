@@ -33,7 +33,7 @@ final class StayCore_Backup {
         $code = is_wp_error($status) ? 'failed' : 'uploaded';
         set_transient('staycore_backup_notice_' . get_current_user_id(), [
             'code'=>$code,
-            'message'=>is_wp_error($status) ? $status->get_error_message() : 'Encrypted snapshot uploaded; remote restore drill remains pending.',
+            'message'=>is_wp_error($status) ? $status->get_error_message() : 'Encrypted snapshot uploaded and verified by private readback; restore drill remains pending.',
         ], 90);
         wp_safe_redirect(admin_url('admin.php?page=staycore-backup-recovery'));
         exit;
@@ -92,9 +92,35 @@ final class StayCore_Backup {
         if (is_wp_error($response)) return new WP_Error('vault_network', 'Vault upload failed (network).');
         $http = (int)wp_remote_retrieve_response_code($response);
         if (!in_array($http, [200,201], true)) return new WP_Error('vault_upload', 'Vault rejected snapshot (HTTP ' . $http . ').');
+        // Verify private object readback before reporting a successful backup.
+        $check = wp_remote_get($url, [
+            'timeout'=>45, 'redirection'=>0, 'limit_response_size'=>20000000,
+            'sslverify'=>true,
+            'headers'=>['apikey'=>STAYCORE_VAULT_KEY, 'Authorization'=>'Bearer ' . STAYCORE_VAULT_KEY],
+        ]);
+        if (is_wp_error($check) || (int)wp_remote_retrieve_response_code($check) !== 200) {
+            return new WP_Error('vault_readback', 'Upload succeeded, but independent Vault readback failed.');
+        }
+        $remote = wp_remote_retrieve_body($check);
+        if (!hash_equals(hash('sha256', $wrapper), hash('sha256', $remote))) {
+            return new WP_Error('vault_integrity', 'The remote ciphertext differs from the uploaded snapshot.');
+        }
+        $envelope = json_decode($remote, true);
+        if (!is_array($envelope) || !isset($envelope['nonce'], $envelope['ciphertext'])) {
+            return new WP_Error('vault_integrity', 'Invalid remote snapshot envelope.');
+        }
+        $remote_nonce = base64_decode($envelope['nonce'], true);
+        $remote_ciphertext = base64_decode($envelope['ciphertext'], true);
+        if ($remote_nonce === false || strlen($remote_nonce) !== SODIUM_CRYPTO_SECRETBOX_NONCEBYTES || $remote_ciphertext === false) {
+            return new WP_Error('vault_integrity', 'Invalid remote encryption fields.');
+        }
+        $plaintext = sodium_crypto_secretbox_open($remote_ciphertext, $remote_nonce, $key);
+        if ($plaintext === false || !hash_equals(hash('sha256', $data), hash('sha256', $plaintext))) {
+            return new WP_Error('vault_integrity', 'Remote snapshot authentication/decryption failed.');
+        }
         update_option('staycore_last_backup', [
             'utc'=>gmdate('c'), 'object'=>$object, 'sha256'=>hash('sha256', $wrapper),
-            'tables'=>array_map('count',$inventory), 'status'=>'uploaded_unverified',
+            'tables'=>array_map('count',$inventory), 'status'=>'ciphertext_verified',
         ], false);
         return true;
     }
