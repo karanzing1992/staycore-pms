@@ -1,5 +1,9 @@
 # StayCore PMS — Andaz Edition
 
+## MOKSHA MASTER GOLDEN RULE 0 — RESEARCH FIRST, REUSE FIRST, NEVER BUILD FROM SCRATCH (2026-10-14)
+
+Before **every** implementation, design, technical operation, integration, automation, app, website, UI/UX, workflow or media-tooling task: inspect existing approved Master/project assets and research credible, maintained public open-source Git repositories and other legally reusable foundations (libraries, vendor APIs, standards, components and templates). Compare real upstream versions, functionality, maintainer activity, security, privacy, license/attribution, compatibility, costs, QA and rollback; prefer configuring, forking, extending or integrating the best existing solution. For each nontrivial task record a **Reference / Reuse Decision** with candidate source links, options, selected upstream/version/license, adaptation gaps, tests and rollback **before** custom coding. Bespoke code is limited to demonstrable missing capabilities or essential adapters. A net-new from-scratch system requires documented lack of viable alternatives **and explicit user approval**. For routine low-risk tasks make a proportionate reuse check. Do not execute untrusted code blindly, violate licenses or bypass security/change approval. Canonical source: https://github.com/karanzing1992/engagement-core/blob/main/docs/MASTER_STACK_UPDATE_PROTOCOL.md . This shared engineering practice never merges venture credentials, data or brand identity.
+
 ## Project governance
 Project/workspace: **Andaz Lifestyle Stay**, public brand **Andaz Vibe Stay - Arambol, Goa**. PMS is separate from the Andaz public website and Moksha wellness checkout. PHP plugin main branch declares **0.8.1**, requires WP >=6.4 and PHP >=8.0; CI uses PHP 8.2 and Node 20. Newer safeguard/extension draft PRs are NOT confirmed deployed.
 
