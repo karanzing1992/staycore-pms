@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   validate:
@@ -25,3 +26,20 @@ jobs:
           node-version: '20'
       - name: Admin JavaScript syntax
         run: node --check admin/assets/app.js
+
+      - name: Build WordPress installable ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/staycore-pms
+          rsync -a --exclude='.git' --exclude='.github' --exclude='dist' --exclude='node_modules' ./ dist/staycore-pms/
+          test -f dist/staycore-pms/staycore-pms.php
+          grep -Fqx ' * Version: 0.8.4' dist/staycore-pms/staycore-pms.php
+          (cd dist && zip -qr staycore-pms-0.8.4.zip staycore-pms)
+          unzip -Z1 dist/staycore-pms-0.8.4.zip | grep -qx 'staycore-pms/staycore-pms.php'
+      - name: Upload WordPress plugin ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: staycore-pms-0.8.4-wordpress-plugin
+          path: dist/staycore-pms-0.8.4.zip
+          if-no-files-found: error
