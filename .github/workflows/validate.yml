@@ -20,8 +20,12 @@ jobs:
           php-version: '8.2'
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: PHP regression tests
+        run: php tests/regression.php
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Admin JavaScript syntax
         run: node --check admin/assets/app.js
+      - name: Frontend checkout contract
+        run: node tests/frontend-contract.cjs
